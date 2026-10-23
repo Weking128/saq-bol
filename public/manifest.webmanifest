@@ -1,0 +1,12 @@
+{
+  "name": "Сақ бол! Квест по финансовой безопасности",
+  "short_name": "Сақ бол!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f5fb",
+  "theme_color": "#0a6f9c",
+  "lang": "ru",
+  "icons": [
+    { "src": "/img/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
