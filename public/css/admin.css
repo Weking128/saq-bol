@@ -126,6 +126,43 @@ textarea.ctl { min-height: 90px; resize: vertical; font-family: inherit; }
 .hbar .track i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--sky); }
 .hbar .v { text-align: right; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; }
 
+/* Аналитика */
+.live-dot { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--ok); vertical-align: 2px; animation: livePulse 2s ease-out infinite; }
+@keyframes livePulse {
+  0% { box-shadow: 0 0 0 0 rgba(18, 154, 87, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(18, 154, 87, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(18, 154, 87, 0); }
+}
+.live-kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.live-kpis .kpi { background: var(--bg); box-shadow: none; }
+.sub-h { margin: 18px 0 10px; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.bars.sm { height: 120px; }
+.bars.marked { margin-top: 22px; }
+.bars .col.dim i { background: #9fdbe8; }
+.bars .col.dim:hover i, .bars .col.dim:focus-visible i { background: var(--sky); }
+.vmark { position: absolute; top: -6px; bottom: 0; z-index: 1; border-left: 2px dashed var(--navy); pointer-events: none; }
+.vmark span { position: absolute; top: -18px; left: 4px; font-size: 11px; font-weight: 800; color: var(--navy); white-space: nowrap; }
+.xcap { margin-top: 4px; padding-left: 34px; text-align: center; font-size: 11px; color: var(--muted); }
+.as-table { margin-top: 10px; }
+.as-table summary { cursor: pointer; }
+.hbar[tabindex] { outline: none; cursor: default; }
+.hbar[tabindex]:hover .track i, .hbar[tabindex]:focus-visible .track i { background: var(--sky-600); }
+.fbars { display: flex; flex-direction: column; gap: 12px; }
+.fbar { display: grid; grid-template-columns: minmax(130px, 1.2fr) 3fr 80px; gap: 10px; align-items: center; font-size: 14px; outline: none; cursor: default; }
+.fbar .track { height: 22px; border-radius: 6px; background: #edf0f6; overflow: hidden; }
+.fbar .track i { display: block; height: 100%; min-width: 2px; border-radius: 6px; background: var(--sky); }
+.fbar:hover .track i, .fbar:focus-visible .track i { background: var(--sky-600); }
+.fbar .v { text-align: right; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.fbar .v small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.minis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mini { padding: 12px; border-radius: 12px; background: var(--bg); }
+.mini small { display: block; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+.mini b { display: block; margin: 4px 0 2px; font-size: 24px; color: var(--navy); font-variant-numeric: tabular-nums; }
+.mini span { font-size: 12px; color: var(--ink-2); }
+.share { display: inline-block; width: 120px; height: 8px; margin-right: 8px; border-radius: 999px; background: #edf0f6; overflow: hidden; vertical-align: middle; }
+.share i { display: block; height: 100%; background: var(--sky); }
+.tbl tr.group-row td { padding-top: 14px; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; background: #fbfcfe; }
+
 .qlist { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .qlist li { font-size: 14px; color: var(--ink-2); display: flex; gap: 10px; align-items: flex-start; }
 .qlist li b { flex: none; min-width: 48px; text-align: right; color: var(--bad); font-variant-numeric: tabular-nums; }
@@ -211,4 +248,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   .kv { grid-template-columns: 1fr; }
   .kv dt { margin-top: 6px; }
   .hide-sm { display: none; }
+  .fbar { grid-template-columns: 1fr 80px; gap: 6px 10px; }
+  .fbar .track { grid-column: 1 / -1; grid-row: 2; height: 16px; }
+  .fbar .v { grid-column: 2; grid-row: 1; }
+  .minis { grid-template-columns: 1fr; }
+  .share { width: 60px; }
 }

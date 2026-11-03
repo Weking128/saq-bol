@@ -12,7 +12,7 @@
     in_progress: 'Проходит миссии',
     registered: 'Только регистрация',
   };
-  const state = { tab: 'overview', filters: { from: '', to: '', type: '' }, people: { q: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }, institutions: null };
+  const state = { tab: 'overview', filters: { from: '', to: '', type: '', district: '' }, people: { q: '', district: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }, institutions: null, districts: [], instDistrict: '' };
 
   async function api(path, opts = {}) {
     const headers = { 'X-Requested-With': 'fetch' };
@@ -50,6 +50,7 @@
   // ─── Вход ─────────────────────────────────────────────────────────────
 
   function renderLogin() {
+    stopRefresh();
     const pw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', placeholder: 'Пароль администратора', 'aria-label': 'Пароль' });
     const err = h('p', { class: 'error-text', role: 'alert' });
     const btn = h('button', { class: 'btn', type: 'submit' }, 'Войти');
@@ -76,6 +77,7 @@
 
   const TABS = [
     ['overview', 'Обзор'],
+    ['analytics', 'Аналитика'],
     ['people', 'Участники'],
     ['institutions', 'Учебные заведения'],
     ['settings', 'Настройки'],
@@ -104,9 +106,14 @@
     render();
   }
 
+  let refreshTimer = null;
+  const stopRefresh = () => { clearInterval(refreshTimer); refreshTimer = null; };
+
   function render() {
+    stopRefresh();
+    hideTip();
     const main = shell();
-    ({ overview: renderOverview, people: renderPeople, institutions: renderInstitutions, settings: renderSettings })[state.tab](main);
+    ({ overview: renderOverview, analytics: renderAnalytics, people: renderPeople, institutions: renderInstitutions, settings: renderSettings })[state.tab](main);
   }
 
   async function loadInstitutions(force) {
@@ -116,23 +123,28 @@
 
   // ─── Обзор ────────────────────────────────────────────────────────────
 
-  async function renderOverview(main) {
+  // Фильтры периода, района и типа — общие для «Обзора» и «Аналитики»
+  function periodFilters() {
     const f = state.filters;
-    const content = h('div', null, h('p', { class: 'muted' }, 'Загрузка…'));
     const dateFrom = h('input', { class: 'ctl', type: 'date', value: f.from, onchange: (e) => { f.from = e.target.value; render(); } });
     const dateTo = h('input', { class: 'ctl', type: 'date', value: f.to, onchange: (e) => { f.to = e.target.value; render(); } });
     const preset = (label, from, to) => h('button', {
       'aria-pressed': String(f.from === from && f.to === to),
       onclick: () => { f.from = from; f.to = to; render(); },
     }, label);
-    main.append(
-      h('div', { class: 'filters' },
-        h('div', { class: 'f' }, 'Период', h('div', { class: 'seg' }, preset('Сегодня', today(), today()), preset('7 дней', daysAgo(6), today()), preset('30 дней', daysAgo(29), today()), preset('Всё время', '', ''))),
-        h('label', { class: 'f' }, 'С', dateFrom),
-        h('label', { class: 'f' }, 'По', dateTo),
-        h('label', { class: 'f' }, 'Тип заведения', h('select', { class: 'ctl', onchange: (e) => { f.type = e.target.value; render(); } },
-          h('option', { value: '' }, 'Все'), Object.entries(TYPE_LABELS).map(([k, v]) => h('option', { value: k, selected: f.type === k }, v))))),
-      content);
+    return h('div', { class: 'filters' },
+      h('div', { class: 'f' }, 'Период', h('div', { class: 'seg' }, preset('Сегодня', today(), today()), preset('7 дней', daysAgo(6), today()), preset('30 дней', daysAgo(29), today()), preset('Всё время', '', ''))),
+      h('label', { class: 'f' }, 'С', dateFrom),
+      h('label', { class: 'f' }, 'По', dateTo),
+      h('label', { class: 'f' }, 'Город / район', districtSelect(f.district, (v) => { f.district = v; render(); })),
+      h('label', { class: 'f' }, 'Тип заведения', h('select', { class: 'ctl', onchange: (e) => { f.type = e.target.value; render(); } },
+        h('option', { value: '' }, 'Все'), Object.entries(TYPE_LABELS).map(([k, v]) => h('option', { value: k, selected: f.type === k }, v)))));
+  }
+
+  async function renderOverview(main) {
+    const f = state.filters;
+    const content = h('div', null, h('p', { class: 'muted' }, 'Загрузка…'));
+    main.append(periodFilters(), content);
 
     let s;
     try {
@@ -142,7 +154,8 @@
       return;
     }
     const t = s.totals;
-    content.replaceChildren(
+    // Обёртка h('div') отбрасывает пустые блоки (например, таблицу районов при выбранном районе)
+    content.replaceChildren(h('div', null,
       h('section', { class: 'kpis a-section' },
         kpi('Участников', fmt(t.participants), `из ${fmt(t.institutions)} учебных заведений`),
         kpi('Прошли все миссии', fmt(t.missionsDone), `${pct(t.missionsDone, t.participants)}% от участников`),
@@ -172,9 +185,36 @@
           s.byGrade.length
             ? h('div', { class: 'chips' }, s.byGrade.map((g) => h('span', { class: 'chip' }, h('b', null, `${g.grade} ${g.kind === 'course' ? 'курс' : 'кл.'}`), ` — ${g.participants} уч., ${g.passed} серт.`)))
             : h('p', { class: 'muted small' }, 'Пока нет данных.'))),
+      !f.district && h('section', { class: 'panel a-section' },
+        h('div', { class: 'panel-head' }, h('h3', null, 'По городу и районам'), h('span', { class: 'hint' }, 'нажмите на строку, чтобы отфильтровать статистику')),
+        districtTable(s.byDistrict)),
       h('section', { class: 'panel a-section' },
         h('div', { class: 'panel-head' }, h('h3', null, 'Учебные заведения'), h('span', { class: 'hint' }, 'нажмите на строку, чтобы увидеть участников')),
-        institutionTable(s.byInstitution)));
+        institutionTable(s.byInstitution))));
+  }
+
+  function districtSelect(value, onChange) {
+    return h('select', { class: 'ctl', onchange: (e) => onChange(e.target.value) },
+      h('option', { value: '' }, 'Все'),
+      state.districts.map((d) => h('option', { value: d.id, selected: value === d.id }, d.name)));
+  }
+
+  function districtTable(rows) {
+    return h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+      h('thead', null, h('tr', null,
+        h('th', null, 'Город / район'), h('th', { class: 'num' }, 'Заведений с участниками'), h('th', { class: 'num' }, 'Участников'),
+        h('th', { class: 'num' }, 'Прошли миссии'), h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% сдачи'), h('th', { class: 'num' }, 'Ср. балл'))),
+      h('tbody', null, rows.map((r) => h('tr', {
+        class: 'click' + (r.participants ? '' : ' inactive'),
+        onclick: () => { state.filters.district = r.id; render(); },
+      },
+      h('td', { class: 'name' }, r.name),
+      h('td', { class: 'num' }, r.institutions),
+      h('td', { class: 'num' }, r.participants),
+      h('td', { class: 'num' }, r.missionsDone),
+      h('td', { class: 'num' }, r.passed),
+      h('td', { class: 'num' }, `${pct(r.passed, r.participants)}%`),
+      h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ',')))))));
   }
 
   function kpi(label, value, sub) {
@@ -184,7 +224,7 @@
   let tipEl = null;
   function showTip(e, html) {
     if (!tipEl) { tipEl = h('div', { class: 'tip', role: 'tooltip' }); document.body.append(tipEl); }
-    tipEl.replaceChildren(...html);
+    tipEl.replaceChildren(...html.flat(3).filter((x) => x !== null && x !== undefined && x !== false));
     const r = (e.currentTarget || e.target).getBoundingClientRect();
     tipEl.style.display = 'block';
     const w = tipEl.offsetWidth;
@@ -259,9 +299,9 @@
         });
       tbody.replaceChildren(...list.map((r) => h('tr', {
         class: 'click',
-        onclick: () => { state.people = { ...state.people, institution: r.id ? String(r.id) : 'other', q: '', status: '', page: 1 }; switchTab('people'); },
+        onclick: () => { state.people = { ...state.people, district: r.district || '', institution: r.id ? String(r.id) : 'other', q: '', status: '', page: 1 }; switchTab('people'); },
       },
-      h('td', { class: 'name' }, r.name),
+      h('td', null, h('div', { class: 'name' }, r.name), h('div', { class: 'sub' }, r.districtName)),
       h('td', { class: 'hide-sm' }, TYPE_LABELS[r.type] || r.type),
       h('td', { class: 'num' }, r.participants),
       h('td', { class: 'num' }, r.missionsDone),
@@ -276,6 +316,228 @@
       h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' }, thead, tbody)));
   }
 
+  // ─── Аналитика ────────────────────────────────────────────────────────
+
+  const FUNNEL_LABELS = {
+    registered: 'Зарегистрировались',
+    started: 'Начали миссии',
+    allMissions: 'Прошли все миссии',
+    tested: 'Проходили тест',
+    certified: 'Получили сертификат',
+  };
+  const LANG_LABELS = { kk: 'Қазақша', ru: 'Русский' };
+  const LEVEL_LABELS = { junior: 'Облегчённая (1–6 кл.)', junior_short: '1–6 кл.', senior: 'Полная (7+ кл., колледжи, вузы)', senior_short: '7+ кл. и старше' };
+  const time = (iso, sec) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', ...(sec ? { second: '2-digit' } : {}) });
+  const num1 = (v) => (v === null || v === undefined ? '—' : String(v).replace('.', ','));
+  const minutes = (v) => {
+    if (v === null || v === undefined) return '—';
+    if (v < 1) return '< 1 мин';
+    if (v < 60) return `${num1(Math.round(v * 10) / 10)} мин`;
+    return `${Math.floor(v / 60)} ч ${Math.round(v % 60)} мин`;
+  };
+  const tipOn = (tip) => ({ tabindex: '0', onmouseenter: (e) => showTip(e, tip), onmouseleave: hideTip, onfocus: (e) => showTip(e, tip), onblur: hideTip });
+  const empty = (text) => h('p', { class: 'muted small' }, text);
+
+  async function renderAnalytics(main) {
+    const content = h('div', null, h('p', { class: 'muted' }, 'Загрузка…'));
+    main.append(periodFilters(), content);
+
+    const load = async (quiet) => {
+      let a;
+      try {
+        a = await api('/api/admin/analytics?' + qs(state.filters));
+      } catch (e) {
+        if (!quiet) content.replaceChildren(h('p', { class: 'error-text' }, e.message));
+        return;
+      }
+      if (!content.isConnected) return;
+      // Открытые таблицы остаются открытыми после автообновления
+      const open = new Set([...content.querySelectorAll('details[open]')].map((d) => d.dataset.key));
+      hideTip();
+      content.replaceChildren(analyticsView(a));
+      content.querySelectorAll('details[data-key]').forEach((d) => { if (open.has(d.dataset.key)) d.open = true; });
+    };
+    await load(false);
+    // Автообновление, пока вкладка открыта и видна
+    refreshTimer = setInterval(() => {
+      if (state.tab === 'analytics' && document.visibilityState === 'visible') load(true);
+    }, 30000);
+  }
+
+  function panel(title, hint, body) {
+    return h('div', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h3', null, title), hint && h('span', { class: 'hint' }, hint)), body);
+  }
+
+  function tableDetails(key, head, rows) {
+    return h('details', { class: 'as-table', 'data-key': key }, h('summary', { class: 'small muted' }, 'Показать таблицей'),
+      h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+        h('thead', null, h('tr', null, head.map((c, i) => h('th', { class: i ? 'num' : '' }, c)))),
+        h('tbody', null, rows.map((r) => h('tr', null, r.map((c, i) => h('td', { class: i ? 'num' : '' }, String(c)))))))));
+  }
+
+  // Вертикальные столбцы одного цвета с подсказками и табличным видом
+  function vbars(items, o) {
+    const values = items.map(o.value);
+    const max = Math.max(...values, 1);
+    const nice = max <= 5 ? 5 : max <= 10 ? 10 : Math.ceil(max / 10) * 10;
+    const every = o.every || 1;
+    const bars = h('div', { class: 'bars' + (o.small ? ' sm' : '') + (o.marker ? ' marked' : '') },
+      [0, 0.5, 1].map((p) => [
+        h('div', { class: 'grid', style: { bottom: `${p * 100}%` } }),
+        h('div', { class: 'ylab', style: { bottom: `${p * 100}%`, transform: 'translateY(50%)' } }, String(Math.round(nice * p))),
+      ]),
+      o.marker && h('div', { class: 'vmark', style: { left: `calc(34px + (100% - 34px) * ${o.marker.index / items.length})` } }, h('span', null, o.marker.label)),
+      items.map((x, i) => h('div', { class: 'col' + (o.cls ? ` ${o.cls(x)}` : ''), 'aria-label': o.aria(x), ...tipOn(o.tip(x)) },
+        h('i', { style: { height: `${(values[i] / nice) * 100}%` } }))));
+    const xl = h('div', { class: 'xlabs', 'aria-hidden': 'true' }, items.map((x, i) => h('span', null, i % every === 0 ? o.label(x) : '')));
+    return h('div', null, bars, xl, o.caption && h('div', { class: 'xcap' }, o.caption), o.table);
+  }
+
+  function analyticsView(a) {
+    const titles = Object.fromEntries(((SB.MISSIONS_BY_LANG || {}).ru || []).map((m) => [m.id, m.title]));
+    const L = a.live;
+    return h('div', null,
+      h('section', { class: 'panel a-section' },
+        h('div', { class: 'panel-head' }, h('h3', null, h('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'Сейчас'),
+          h('span', { class: 'hint' }, `обновлено в ${time(a.generatedAt, true)} · автообновление каждые 30 с`)),
+        h('div', { class: 'kpis live-kpis' },
+          kpi('Активны сейчас', fmt(L.activeNow), 'регистрировались, проходили миссии или тест за последние 10 минут'),
+          kpi('Регистраций сегодня', fmt(L.regToday), 'с начала дня'),
+          kpi('Сертификатов сегодня', fmt(L.certToday), L.regToday ? `${pct(L.certToday, L.regToday)}% от регистраций за день` : 'с начала дня')),
+        h('h4', { class: 'sub-h' }, 'Последние 3 часа — регистрации за каждые 10 минут'),
+        vbars(L.recent, {
+          small: true,
+          every: 3,
+          value: (x) => x.reg,
+          label: (x) => time(x.at),
+          aria: (x) => `${time(x.at)}: регистраций ${x.reg}, сертификатов ${x.cert}`,
+          tip: (x) => [h('b', null, `${time(x.at)}–${time(new Date(x.at).getTime() + 600000)}`), h('br'), `Регистраций: ${x.reg}`, h('br'), `Сертификатов: ${x.cert}`],
+          table: tableDetails('recent', ['Время', 'Регистраций', 'Сертификатов'], L.recent.filter((x) => x.reg || x.cert).reverse().map((x) => [time(x.at), x.reg, x.cert])),
+        })),
+      h('section', { class: 'grid-2 a-section' },
+        panel('Воронка прохождения', 'от регистрации до сертификата', funnelView(a.funnel)),
+        panel('Миссии', '% прошедших из тех, кому миссия доступна', missionsView(a.missions, titles))),
+      h('section', { class: 'grid-2 a-section' },
+        panel('Результаты теста', 'лучший результат каждого участника', scoresView(a)),
+        panel('Итоговый тест', null, testsView(a))),
+      h('section', { class: 'grid-2 a-section' },
+        panel('Активность по часам', 'регистрации за период, местное время', hoursView(a.hours)),
+        panel('Где останавливаются', 'кто ещё не прошёл все миссии', stuckView(a.stuck))),
+      h('section', { class: 'panel a-section' },
+        h('div', { class: 'panel-head' }, h('h3', null, 'Язык и версия квеста')),
+        splitsView(a)));
+  }
+
+  function funnelView(rows) {
+    const base = rows[0].n;
+    if (!base) return empty('Пока нет участников.');
+    return h('div', null,
+      h('div', { class: 'fbars' }, rows.map((r, i) => {
+        const tip = [h('b', null, FUNNEL_LABELS[r.key]), h('br'), `Всего: ${fmt(r.n)} (${pct(r.n, base)}% от зарегистрированных)`,
+          i ? [h('br'), `От предыдущего шага: ${pct(r.n, rows[i - 1].n)}%`] : null,
+          h('br'), `${LEVEL_LABELS.junior_short}: ${fmt(r.junior)} · ${LEVEL_LABELS.senior_short}: ${fmt(r.senior)}`];
+        return h('div', { class: 'fbar', 'aria-label': `${FUNNEL_LABELS[r.key]}: ${r.n}`, ...tipOn(tip) },
+          h('span', null, FUNNEL_LABELS[r.key]),
+          h('span', { class: 'track' }, h('i', { style: { width: `${pct(r.n, base)}%` } })),
+          h('span', { class: 'v' }, fmt(r.n), h('small', null, i ? `${pct(r.n, base)}%` : '100%')));
+      })),
+      tableDetails('funnel', ['Шаг', 'Участников', '% от зарег.', '% от пред. шага', LEVEL_LABELS.junior_short, LEVEL_LABELS.senior_short],
+        rows.map((r, i) => [FUNNEL_LABELS[r.key], fmt(r.n), `${pct(r.n, base)}%`, i ? `${pct(r.n, rows[i - 1].n)}%` : '—', fmt(r.junior), fmt(r.senior)])));
+  }
+
+  function missionsView(rows, titles) {
+    if (!rows.some((m) => m.eligible)) return empty('Пока нет участников.');
+    const name = (m, i) => `${i + 1}. ${titles[m.id] || m.id}`;
+    return h('div', null,
+      h('div', { class: 'hbars' }, rows.map((m, i) => {
+        const p = pct(m.done, m.eligible);
+        const tip = [h('b', null, name(m, i)), h('br'), `Прошли: ${fmt(m.done)} из ${fmt(m.eligible)}`, h('br'),
+          `Средний результат: ${m.avgPct === null ? '—' : `${m.avgPct}%`}`, m.seniorOnly ? [h('br'), 'Только в полной версии (7+ кл.)'] : null];
+        return h('div', { class: 'hbar', 'aria-label': `${name(m, i)}: ${p}%`, ...tipOn(tip) },
+          h('span', null, name(m, i), m.seniorOnly ? h('span', { class: 'sub muted' }, ' · 7+') : null),
+          h('span', { class: 'track' }, h('i', { style: { width: `${p}%` } })),
+          h('span', { class: 'v' }, `${p}%`));
+      })),
+      tableDetails('missions', ['Миссия', 'Доступна', 'Прошли', '% прошли', 'Ср. результат'],
+        rows.map((m, i) => [name(m, i) + (m.seniorOnly ? ' (7+ кл.)' : ''), fmt(m.eligible), fmt(m.done), `${pct(m.done, m.eligible)}%`, m.avgPct === null ? '—' : `${m.avgPct}%`])));
+  }
+
+  function scoresView(a) {
+    const total = a.scores.reduce((s, x) => s + x.n, 0);
+    if (!total) return empty('Пока никто не проходил тест.');
+    return vbars(a.scores, {
+      value: (x) => x.n,
+      label: (x) => String(x.score),
+      cls: (x) => (x.score < a.passScore ? 'dim' : ''),
+      marker: { index: a.passScore, label: `проходной балл: ${a.passScore}` },
+      caption: `правильных ответов из ${a.quizSize}`,
+      aria: (x) => `${x.score} из ${a.quizSize}: ${x.n} участников`,
+      tip: (x) => [h('b', null, `${x.score} из ${a.quizSize}`), h('br'), `Участников: ${fmt(x.n)} (${pct(x.n, total)}%)`],
+      table: tableDetails('scores', ['Баллов', 'Участников', 'Доля'], a.scores.map((x) => [`${x.score} из ${a.quizSize}`, fmt(x.n), `${pct(x.n, total)}%`])),
+    });
+  }
+
+  function testsView(a) {
+    const t = a.tests;
+    if (!t.tested) return empty('Пока никто не проходил тест.');
+    const mini = (label, value, sub) => h('div', { class: 'mini' }, h('small', null, label), h('b', null, value), h('span', null, sub));
+    return h('div', { class: 'minis' },
+      mini('Сдали с первой попытки', `${pct(t.firstTry, t.tested)}%`, `${fmt(t.firstTry)} из ${fmt(t.tested)} проходивших`),
+      mini('Попыток на участника', num1(t.avgAttempts), `сдали со 2-й: ${fmt(t.toPass[1])}, с 3-й и позже: ${fmt(t.toPass[2])}`),
+      mini('Длительность теста', minutes(t.medianTestMin), 'медиана по попыткам'),
+      mini('От регистрации до сертификата', minutes(a.medianToCertMin), 'медиана: миссии + тест'));
+  }
+
+  function hoursView(rows) {
+    const used = rows.filter((x) => x.reg || x.cert);
+    if (!used.length) return empty('Пока нет регистраций.');
+    // Показываем рабочую часть суток: не меньше 8:00–18:00 и все часы, где были регистрации
+    const from = Math.min(8, used[0].hour);
+    const to = Math.max(18, used[used.length - 1].hour);
+    const shown = rows.slice(from, to + 1);
+    return vbars(shown, {
+      every: 2,
+      value: (x) => x.reg,
+      label: (x) => String(x.hour),
+      caption: 'час дня',
+      aria: (x) => `${x.hour}:00: регистраций ${x.reg}, сертификатов ${x.cert}`,
+      tip: (x) => [h('b', null, `${x.hour}:00–${x.hour + 1}:00`), h('br'), `Регистраций: ${fmt(x.reg)}`, h('br'), `Сертификатов: ${fmt(x.cert)}`],
+      table: tableDetails('hours', ['Час', 'Регистраций', 'Сертификатов'], used.map((x) => [`${x.hour}:00–${x.hour + 1}:00`, fmt(x.reg), fmt(x.cert)])),
+    });
+  }
+
+  function stuckView(rows) {
+    const total = rows.reduce((s, x) => s + x.n, 0);
+    if (!total) return empty('Все участники прошли миссии.');
+    return vbars(rows, {
+      small: true,
+      value: (x) => x.n,
+      label: (x) => String(x.done),
+      caption: 'пройдено миссий (0 — только зарегистрировались)',
+      aria: (x) => `Пройдено миссий ${x.done}: ${x.n} участников`,
+      tip: (x) => [h('b', null, x.done ? `Пройдено миссий: ${x.done}` : 'Только регистрация'), h('br'), `Участников: ${fmt(x.n)} (${pct(x.n, total)}%)`],
+      table: tableDetails('stuck', ['Пройдено миссий', 'Участников', 'Доля'], rows.map((x) => [x.done, fmt(x.n), `${pct(x.n, total)}%`])),
+    });
+  }
+
+  function splitsView(a) {
+    const total = a.langs.reduce((s, x) => s + x.n, 0);
+    if (!total) return empty('Пока нет участников.');
+    const row = (label, r) => h('tr', null,
+      h('td', null, label),
+      h('td', { class: 'num' }, fmt(r.n)),
+      h('td', null, h('span', { class: 'share', role: 'img', 'aria-label': `${pct(r.n, total)}%` }, h('i', { style: { width: `${pct(r.n, total)}%` } })), `${pct(r.n, total)}%`),
+      h('td', { class: 'num' }, fmt(r.certified)),
+      h('td', { class: 'num' }, `${pct(r.certified, r.n)}%`));
+    return h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+      h('thead', null, h('tr', null, h('th', null, 'Группа'), h('th', { class: 'num' }, 'Участников'), h('th', null, 'Доля'), h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% получивших'))),
+      h('tbody', null,
+        h('tr', { class: 'group-row' }, h('td', { colspan: '5' }, 'Язык сайта')),
+        a.langs.map((r) => row(LANG_LABELS[r.lang] || r.lang, r)),
+        h('tr', { class: 'group-row' }, h('td', { colspan: '5' }, 'Версия квеста')),
+        a.levels.map((r) => row(LEVEL_LABELS[r.level] || r.level, r)))));
+  }
+
   // ─── Участники ────────────────────────────────────────────────────────
 
   async function renderPeople(main) {
@@ -288,7 +550,8 @@
     const sel = (key, options) => h('select', { class: 'ctl', onchange: (e) => { p[key] = e.target.value; reload(); } },
       options.map(([v, label]) => h('option', { value: v, selected: String(p[key]) === String(v) }, label)));
 
-    const exportLink = () => '/api/admin/export.csv?' + qs({ q: p.q, institution: p.institution, status: p.status, grade: p.grade, from: p.from, to: p.to });
+    const exportLink = () => '/api/admin/export.csv?' + qs({ q: p.q, district: p.district, institution: p.institution, status: p.status, grade: p.grade, from: p.from, to: p.to });
+    const instOptions = insts.filter((i) => !p.district || i.district === p.district);
 
     main.append(
       h('div', { class: 'filters' },
@@ -296,13 +559,14 @@
           class: 'ctl', type: 'search', value: p.q, placeholder: 'ФИО или № сертификата',
           oninput: (e) => { p.q = e.target.value; clearTimeout(timer); timer = setTimeout(reload, 300); },
         })),
-        h('label', { class: 'f' }, 'Учебное заведение', sel('institution', [['', 'Все'], ...insts.map((i) => [String(i.id), i.name]), ['other', '— Другое (вписаны вручную)']])),
+        h('label', { class: 'f' }, 'Город / район', districtSelect(p.district, (v) => { p.district = v; p.institution = ''; p.page = 1; render(); })),
+        h('label', { class: 'f' }, 'Учебное заведение', sel('institution', [['', 'Все'], ...instOptions.map((i) => [String(i.id), i.name]), ['other', '— Другое (вписаны вручную)']])),
         h('label', { class: 'f' }, 'Статус', sel('status', [['', 'Все'], ...Object.entries(STATUS_LABELS)])),
-        h('label', { class: 'f' }, 'Класс / курс', sel('grade', [['', 'Все'], ...Array.from({ length: 11 }, (_, i) => [String(i + 1), String(i + 1)])])),
+        h('label', { class: 'f' }, 'Класс / курс', sel('grade', [['', 'Все'], ...Array.from({ length: 12 }, (_, i) => [String(i + 1), String(i + 1)])])),
         h('label', { class: 'f' }, 'С', h('input', { class: 'ctl', type: 'date', value: p.from, onchange: (e) => { p.from = e.target.value; reload(); } })),
         h('label', { class: 'f' }, 'По', h('input', { class: 'ctl', type: 'date', value: p.to, onchange: (e) => { p.to = e.target.value; reload(); } })),
         h('label', { class: 'f' }, 'Сортировка', sel('sort', [['created', 'Сначала новые'], ['name', 'По фамилии'], ['institution', 'По заведению'], ['score', 'По результату']])),
-        h('button', { class: 'abtn ghost', onclick: () => { state.people = { q: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }; render(); } }, 'Сбросить'),
+        h('button', { class: 'abtn ghost', onclick: () => { state.people = { q: '', district: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }; render(); } }, 'Сбросить'),
         h('a', { class: 'abtn ok', href: '#', onclick: (e) => { e.preventDefault(); location.href = exportLink(); } }, '↓ Скачать для Excel')),
       h('div', { class: 'panel' }, tableBox));
     loadPeople(tableBox);
@@ -328,9 +592,9 @@
           h('th', { class: 'num' }, 'Миссии'), h('th', { class: 'num' }, 'Тест'), h('th', null, 'Статус'), h('th', { class: 'hide-sm' }, 'Регистрация'))),
         h('tbody', null, data.rows.length ? data.rows.map((r) => h('tr', { class: 'click', onclick: () => openParticipant(r.id) },
           h('td', null, h('div', { class: 'name' }, `${r.lastName} ${r.firstName}`), r.middleName ? h('div', { class: 'sub' }, r.middleName) : null),
-          h('td', null, r.institution),
-          h('td', null, r.gradeLabel),
-          h('td', { class: 'num' }, `${r.missionsDone}/5`),
+          h('td', null, r.institution, h('div', { class: 'sub' }, r.districtName)),
+          h('td', null, r.gradeLabel, r.level === 'junior' ? h('div', { class: 'sub' }, '🌱 облегчённая версия') : null),
+          h('td', { class: 'num' }, `${r.missionsDone}/${r.missionsTotal || 5}`),
           h('td', { class: 'num' }, r.attemptsCount ? `${r.bestScore}/10` : '—', r.attemptsCount > 1 ? h('div', { class: 'sub' }, `попыток: ${r.attemptsCount}`) : null),
           h('td', null, statusBadge(r.status)),
           h('td', { class: 'hide-sm' }, dt(r.createdAt))))
@@ -374,15 +638,16 @@
       h('h2', null, `${p.lastName} ${p.firstName} ${p.middleName}`.trim()),
       statusBadge(p.status),
       h('dl', { class: 'kv' },
+        h('dt', null, 'Город / район'), h('dd', null, p.districtName),
         h('dt', null, 'Учебное заведение'), h('dd', null, p.institution),
-        h('dt', null, 'Класс / курс'), h('dd', null, p.gradeLabel),
+        h('dt', null, 'Класс / курс'), h('dd', null, p.gradeLabel + (p.level === 'junior' ? ' · облегчённая версия квеста' : '')),
         h('dt', null, 'Регистрация'), h('dd', null, dt(p.createdAt)),
         h('dt', null, 'Последняя активность'), h('dd', null, dt(p.updatedAt)),
         h('dt', null, 'Очки (XP)'), h('dd', null, String(p.xp)),
         h('dt', null, 'Лучший результат'), h('dd', null, p.attemptsCount ? `${p.bestScore} из 10 (попыток: ${p.attemptsCount})` : 'тест не проходил(а)'),
         h('dt', null, 'Сертификат'), h('dd', null, p.certNumber ? `№ ${p.certNumber} от ${d(p.passedAt)}` : '—')),
       h('h3', null, 'Миссии'),
-      h('div', { class: 'mgrid' }, ((SB.MISSIONS_BY_LANG || {}).ru || []).map((m, i) => {
+      h('div', { class: 'mgrid' }, ((SB.MISSIONS_BY_LANG || {}).ru || []).filter((m) => !p.missionIds || p.missionIds.includes(m.id)).map((m, i) => {
         const r = p.missions[m.id];
         return h('div', { class: 'mcell' + (r ? '' : ' off') }, h('b', null, `${i + 1}. ${m.title}`), r ? `${r.score} из ${r.max} · ${d(r.at)}` : 'не пройдена');
       })),
@@ -417,18 +682,25 @@
 
   async function renderInstitutions(main) {
     const box = h('div', null, h('p', { class: 'muted' }, 'Загрузка…'));
-    const name = h('input', { class: 'ctl', placeholder: 'Например: Средняя школа №67', maxlength: '150', style: { minWidth: '240px' } });
-    const nameKk = h('input', { class: 'ctl', placeholder: 'Мысалы: №67 орта мектеп', maxlength: '200', style: { minWidth: '240px' } });
-    const type = h('select', { class: 'ctl' }, ['school', 'college', 'university'].map((k) => h('option', { value: k }, TYPE_LABELS[k])));
+    const typeSelect = (value) => h('select', { class: 'ctl' }, ['school', 'college', 'university'].map((k) => h('option', { value: k, selected: value === k }, TYPE_LABELS[k])));
+    const districtPick = (value) => h('select', { class: 'ctl' }, state.districts.map((d) => h('option', { value: d.id, selected: value === d.id }, d.name)));
+    const name = h('input', { class: 'ctl', placeholder: 'Например: Средняя школа №67', maxlength: '150', style: { minWidth: '220px' } });
+    const nameKk = h('input', { class: 'ctl', placeholder: 'Мысалы: №67 орта мектеп', maxlength: '200', style: { minWidth: '220px' } });
+    const type = typeSelect('school');
+    const district = districtPick(state.instDistrict || 'taraz');
+    // Массовое добавление
+    const bulkText = h('textarea', { class: 'ctl', rows: '6', style: { width: '100%' }, placeholder: 'Средняя школа №1 | №1 орта мектеп\nСредняя школа №2\nОсновная школа имени Абая | Абай атындағы негізгі мектеп' });
+    const bulkType = typeSelect('school');
+    const bulkDistrict = districtPick(state.instDistrict || 'taraz');
     let q = '';
     main.append(
-      h('div', { class: 'notice warn a-section' }, 'Список виден ученикам при регистрации. Заведения, у которых уже есть участники, нельзя удалить — их можно скрыть (снять галочку «Показывать»). Переименование обновит название у всех его участников.'),
+      h('div', { class: 'notice warn a-section' }, 'Список виден ученикам при регистрации: сначала они выбирают город или район, затем заведение. Заведения, у которых уже есть участники, нельзя удалить — их можно скрыть (снять галочку «Показывать»). Переименование и перенос в другой район обновят данные у всех участников заведения.'),
       h('form', {
         class: 'filters a-section',
         onsubmit: async (e) => {
           e.preventDefault();
           try {
-            await api('/api/admin/institutions', { method: 'POST', body: { name: name.value, nameKk: nameKk.value, type: type.value } });
+            await api('/api/admin/institutions', { method: 'POST', body: { name: name.value, nameKk: nameKk.value, type: type.value, district: district.value } });
             name.value = '';
             nameKk.value = '';
             toast('Добавлено', 'ok');
@@ -439,33 +711,62 @@
       },
       h('label', { class: 'f grow' }, 'Новое заведение (на русском)', name),
       h('label', { class: 'f grow' }, 'На казахском', nameKk),
+      h('label', { class: 'f' }, 'Город / район', district),
       h('label', { class: 'f' }, 'Тип', type),
       h('button', { class: 'abtn', type: 'submit' }, '+ Добавить')),
-      h('input', { class: 'ctl', type: 'search', placeholder: 'Поиск по списку', style: { marginBottom: '10px', width: '100%', maxWidth: '360px' }, oninput: (e) => { q = e.target.value.trim().toLowerCase(); fill(); } }),
+      h('details', { class: 'panel a-section' },
+        h('summary', { style: { cursor: 'pointer', fontWeight: '800' } }, 'Добавить списком (например, официальный список школ района)'),
+        h('div', { class: 'stack-sm', style: { marginTop: '12px' } },
+          h('p', { class: 'small muted' }, 'По одному заведению на строку. Название на казахском — через вертикальную черту « | » (необязательно). Заведения, которые уже есть в этом районе, пропускаются.'),
+          bulkText,
+          h('div', { class: 'filters', style: { marginBottom: 0 } },
+            h('label', { class: 'f' }, 'Город / район', bulkDistrict),
+            h('label', { class: 'f' }, 'Тип', bulkType),
+            h('button', {
+              class: 'abtn', type: 'button',
+              onclick: async () => {
+                try {
+                  const r = await api('/api/admin/institutions/bulk', { method: 'POST', body: { lines: bulkText.value, district: bulkDistrict.value, type: bulkType.value } });
+                  toast(`Добавлено: ${r.added}${r.skipped ? `, пропущено: ${r.skipped}` : ''}`, 'ok');
+                  bulkText.value = '';
+                  await loadInstitutions(true);
+                  fill();
+                } catch (ex) { toast(ex.message, 'bad'); }
+              },
+            }, '+ Добавить все')))),
+      h('div', { class: 'filters' },
+        h('label', { class: 'f grow' }, 'Поиск', h('input', { class: 'ctl', type: 'search', placeholder: 'Название', oninput: (e) => { q = e.target.value.trim().toLowerCase(); fill(); } })),
+        h('label', { class: 'f' }, 'Город / район', districtSelect(state.instDistrict, (v) => { state.instDistrict = v; fill(); }))),
       h('div', { class: 'panel' }, box));
 
     try { await loadInstitutions(true); } catch (e) { box.replaceChildren(h('p', { class: 'error-text' }, e.message)); return; }
 
     function fill() {
-      const list = state.institutions.filter((i) => !q || (i.name + ' ' + (i.nameKk || '')).toLowerCase().includes(q));
-      box.replaceChildren(h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
-        h('thead', null, h('tr', null, h('th', null, 'Название'), h('th', null, 'Тип'), h('th', { class: 'num' }, 'Участников'), h('th', { class: 'num' }, 'Сертиф.'), h('th', null, 'Показывать'), h('th', null, ''))),
-        h('tbody', null, list.map((i) => {
+      const list = state.institutions.filter((i) => (!q || (i.name + ' ' + (i.nameKk || '')).toLowerCase().includes(q))
+        && (!state.instDistrict || i.district === state.instDistrict));
+      const shown = list.slice(0, 300);
+      box.replaceChildren(
+        h('p', { class: 'small muted', style: { marginBottom: '8px' } }, `Найдено: ${list.length}${list.length > shown.length ? ` (показаны первые ${shown.length} — уточните поиск или выберите район)` : ''}`),
+        h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+        h('thead', null, h('tr', null, h('th', null, 'Название'), h('th', null, 'Город / район и тип'), h('th', { class: 'num' }, 'Участников'), h('th', { class: 'num' }, 'Сертиф.'), h('th', null, 'Показывать'), h('th', null, ''))),
+        h('tbody', null, shown.map((i) => {
           const n = h('input', { class: 'ctl', value: i.name, maxlength: '150', 'aria-label': 'Название на русском' });
           const nk = h('input', { class: 'ctl', value: i.nameKk, maxlength: '200', placeholder: 'на казахском', 'aria-label': 'Название на казахском', style: { marginTop: '6px' } });
-          const t = h('select', { class: 'ctl' }, ['school', 'college', 'university'].map((k) => h('option', { value: k, selected: i.type === k }, TYPE_LABELS[k])));
+          const t = typeSelect(i.type);
+          const ds = districtPick(i.district);
           const a = h('input', { type: 'checkbox', checked: !!i.active, style: { width: '20px', height: '20px', accentColor: 'var(--sky)' } });
           const save = async () => {
             try {
-              await api(`/api/admin/institutions/${i.id}`, { method: 'PUT', body: { name: n.value, nameKk: nk.value, type: t.value, active: a.checked } });
-              Object.assign(i, { name: n.value.trim(), nameKk: nk.value.trim(), type: t.value, active: a.checked ? 1 : 0 });
+              await api(`/api/admin/institutions/${i.id}`, { method: 'PUT', body: { name: n.value, nameKk: nk.value, type: t.value, district: ds.value, active: a.checked } });
+              Object.assign(i, { name: n.value.trim(), nameKk: nk.value.trim(), type: t.value, district: ds.value, active: a.checked ? 1 : 0 });
               row.classList.toggle('inactive', !a.checked);
               toast('Сохранено', 'ok');
             } catch (ex) { toast(ex.message, 'bad'); }
           };
           a.addEventListener('change', save);
+          ds.style.marginBottom = '6px';
           const row = h('tr', { class: i.active ? '' : 'inactive' },
-            h('td', { style: { width: '55%', minWidth: '300px' } }, n, nk), h('td', null, t),
+            h('td', { style: { width: '50%', minWidth: '280px' } }, n, nk), h('td', null, h('div', null, ds), t),
             h('td', { class: 'num' }, i.participants), h('td', { class: 'num' }, i.passed || 0),
             h('td', null, a),
             h('td', null, h('div', { class: 'row' },
@@ -542,6 +843,7 @@
       root.replaceChildren(h('div', { class: 'login-wrap' }, h('p', { class: 'error-text' }, e.message)));
       return;
     }
+    try { state.districts = (await api('/api/config')).districts || []; } catch { /* фильтр по районам будет пустым */ }
     try { state.tab = sessionStorage.getItem('sb-admin-tab') || 'overview'; } catch { /* недоступно */ }
     if (!TABS.some(([id]) => id === state.tab)) state.tab = 'overview';
     render();

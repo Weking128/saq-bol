@@ -28,6 +28,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -354,6 +355,30 @@ main#app {
 .inst .ico { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--sky-50); font-size: 18px; }
 .inst[aria-pressed="true"] { border-color: var(--sky); background: var(--sky-50); }
 .inst.other { border: 2px dashed var(--line); background: transparent; box-shadow: none; color: var(--ink-2); }
+.inst .sub { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--muted); }
+
+.district-list { display: flex; flex-direction: column; gap: 8px; }
+.district {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px 10px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(13, 27, 61, 0.06);
+  text-align: left;
+  touch-action: manipulation;
+}
+.district:active { background: var(--sky-50); }
+.district .ico { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--sky-50); font-size: 20px; }
+.district .meta { flex: 1; min-width: 0; }
+.district b { display: block; color: var(--navy); font-size: 16px; }
+.district small { display: block; color: var(--muted); font-size: 13px; }
+.district .count { flex: none; padding: 4px 8px; border-radius: 999px; background: var(--sky-50); color: var(--sky-600); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.district::after { content: "›"; flex: none; color: var(--muted); font-size: 24px; line-height: 1; }
 .empty { padding: 24px 12px; text-align: center; color: var(--muted); }
 
 .sticky-cta {
@@ -849,6 +874,225 @@ main#app {
 .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
 .confetti i { position: absolute; top: -20px; width: 10px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
 @keyframes fall { to { transform: translate3d(var(--dx), 110vh, 0) rotate(var(--rot)); } }
+
+/* ─── Карта-джунгли ──────────────────────────────────────────────────── */
+
+.route-note { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 12px; background: #e8f8ec; color: #1d7a45; font-size: 13px; font-weight: 800; }
+.jmap {
+  position: relative;
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12px 12px, rgba(16, 90, 45, 0.1) 0 3px, transparent 4px) 0 0 / 34px 34px,
+    radial-gradient(circle at 20% 8%, rgba(255, 255, 255, 0.45), transparent 32%),
+    radial-gradient(circle at 85% 55%, rgba(255, 255, 255, 0.25), transparent 35%),
+    linear-gradient(180deg, #b6ecae 0%, #79cf8b 40%, #48ad72 75%, #2f8c5c 100%);
+  box-shadow: var(--shadow-lg);
+}
+.jtrail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.jtrail path { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.trail-base { stroke: #f1dca6; stroke-width: 24; }
+.trail-base.locked { stroke: rgba(241, 220, 166, 0.45); }
+.trail-dash { stroke: #fff8e1; stroke-width: 4; stroke-dasharray: 1 14; }
+.trail-dash.locked { stroke: rgba(70, 60, 30, 0.25); }
+.jstart { position: absolute; left: 50%; transform: translate(-50%, -50%); text-align: center; font-size: 34px; line-height: 1; z-index: 2; }
+.jstart small, .jlabel b {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.jstart small { display: block; margin-top: 4px; font-size: 12px; }
+.jnode {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 40px;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 35% 30%, #ffffff, #e6f6ff);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.2), 0 0 0 6px rgba(255, 255, 255, 0.9);
+  touch-action: manipulation;
+  transition: transform 0.15s;
+}
+.jnode:active { transform: translate(-50%, -50%) scale(0.94); }
+.jnode.available { background: radial-gradient(circle at 35% 30%, #fff8d6, #ffcb2f); animation: nodePulse 1.6s ease-out infinite; }
+.jnode.done { background: radial-gradient(circle at 35% 30%, #effff4, #7ad69c); box-shadow: 0 6px 0 #2f8f57, 0 0 0 6px #fff; }
+.jnode.locked { background: radial-gradient(circle at 35% 30%, #f3f5f9, #c9d0dc); box-shadow: 0 6px 0 #8e98ab, 0 0 0 6px rgba(255, 255, 255, 0.6); font-size: 30px; }
+.jnode.locked .emo { filter: grayscale(1); opacity: 0.55; }
+.jnode.final { width: 108px; height: 108px; font-size: 54px; }
+.jnode.final.available { background: radial-gradient(circle at 35% 30%, #fff, #8fe3ff 60%, #3bb6e8); }
+.jnode .lock { position: absolute; right: -2px; bottom: -2px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #fff; font-size: 16px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); }
+.jnode .check { position: absolute; right: -4px; top: -4px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--ok); color: #fff; font-size: 16px; font-weight: 900; box-shadow: 0 0 0 3px #fff; }
+.jnode.final.done { background: radial-gradient(circle at 35% 30%, #fff8d6, #ffcb2f); box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff; }
+.jnode.waiting { animation: none; filter: grayscale(0.85); opacity: 0.85; }
+.jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, nodePulse 1.6s ease-out 0.9s infinite; }
+@keyframes nodePulse {
+  0% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 6px rgba(255, 214, 81, 0.7); }
+  70% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 26px rgba(255, 214, 81, 0); }
+  100% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 6px rgba(255, 214, 81, 0); }
+}
+@keyframes unlockPop { 0% { transform: translate(-50%, -50%) scale(0.2) rotate(-25deg); } 100% { transform: translate(-50%, -50%) scale(1) rotate(0); } }
+.jlabel { position: absolute; z-index: 2; width: 46%; max-width: 170px; text-align: center; transform: translate(-50%, 0); pointer-events: none; }
+.jlabel .num { display: block; font-size: 11px; font-weight: 900; color: #fff; text-transform: uppercase; letter-spacing: 0.6px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); margin-bottom: 3px; }
+.jlabel .stars { display: block; margin-top: 4px; font-size: 15px; letter-spacing: 1px; color: #ffd451; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+.jdeco { position: absolute; z-index: 1; transform: translate(-50%, -50%); font-size: 34px; line-height: 1; pointer-events: none; filter: drop-shadow(0 4px 2px rgba(0, 0, 0, 0.15)); }
+.jdeco.sway { animation: sway 4s ease-in-out infinite; }
+.jdeco.big { font-size: 46px; }
+@keyframes sway { 50% { transform: translate(-50%, -50%) rotate(7deg); } }
+.jmascot { position: absolute; z-index: 3; width: 56px; height: 56px; transform: translate(-50%, -100%); transition: left 1.3s ease-in-out, top 1.3s ease-in-out; pointer-events: none; }
+.jmascot .mascot { width: 56px; height: 56px; animation: hop 0.9s ease-in-out infinite; }
+@keyframes hop { 50% { transform: translateY(-9px); } }
+.spark { position: absolute; left: 50%; top: 50%; font-size: 18px; pointer-events: none; animation: spark 1.1s ease-out forwards; }
+@keyframes spark { from { transform: translate(-50%, -50%) scale(0.4); opacity: 1; } to { transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(1.1); opacity: 0; } }
+
+/* ─── Оперативная карта (7 класс и старше) ───────────────────────────── */
+
+.jmap.ops {
+  --ops-glow: #4fe0ff;
+  --ops-ok: #2fd38a;
+  --ops-panel: rgba(9, 21, 48, 0.9);
+  background:
+    linear-gradient(rgba(79, 224, 255, 0.07) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, rgba(79, 224, 255, 0.07) 1px, transparent 1px) 0 0 / 28px 28px,
+    radial-gradient(circle at 50% 0%, rgba(0, 163, 196, 0.32), transparent 55%),
+    linear-gradient(180deg, #11244d 0%, #0b1733 55%, #070f24 100%);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px rgba(79, 224, 255, 0.18);
+}
+.ops .trail-base { stroke: rgba(79, 224, 255, 0.16); stroke-width: 12; stroke-linejoin: round; }
+.ops .trail-base.locked { stroke: rgba(148, 163, 196, 0.1); }
+.ops .trail-dash { stroke: var(--ops-glow); stroke-width: 2.5; stroke-dasharray: 10 8; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(79, 224, 255, 0.9)); animation: opsFlow 1.2s linear infinite; }
+.ops .trail-dash.locked { stroke: rgba(160, 175, 205, 0.4); stroke-dasharray: 2 8; filter: none; animation: none; }
+@keyframes opsFlow { to { stroke-dashoffset: -18; } }
+
+.ops-hud {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  font: 800 11px/1 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ops-glow);
+  pointer-events: none;
+}
+.ops-hud span:first-child { opacity: 0.85; }
+.ops-hq .hq {
+  display: block;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--ops-glow) 0 4px, #0b1733 5px 8px, var(--ops-glow) 9px 10px, transparent 11px);
+  box-shadow: 0 0 14px rgba(79, 224, 255, 0.7);
+}
+.ops .jstart small, .ops .jlabel b { background: var(--ops-panel); color: #e6f7ff; box-shadow: 0 0 0 1px rgba(79, 224, 255, 0.3); }
+.ops .jstart small { margin-top: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+.ops .jlabel .num { color: var(--ops-glow); text-shadow: none; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+
+.ops .jnode {
+  background: radial-gradient(circle at 35% 30%, #1d3a6b, #0f2147);
+  box-shadow: 0 0 0 2px rgba(79, 224, 255, 0.55), 0 0 0 7px rgba(79, 224, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+.ops .jnode.available { background: radial-gradient(circle at 35% 30%, #22568f, #12305e); animation: opsPulse 1.8s ease-out infinite; }
+.ops .jnode.done { background: radial-gradient(circle at 35% 30%, #1b4d5a, #0f2f3d); box-shadow: 0 0 0 2px var(--ops-ok), 0 0 0 7px rgba(47, 211, 138, 0.12), 0 8px 18px rgba(0, 0, 0, 0.45); }
+.ops .jnode.locked { background: #13203f; box-shadow: 0 0 0 2px rgba(148, 163, 196, 0.35), 0 8px 18px rgba(0, 0, 0, 0.4); }
+.ops .jnode.locked .emo { opacity: 0.35; }
+.ops .jnode.final.available { background: radial-gradient(circle at 35% 30%, #2a6fb0, #12305e); }
+.ops .jnode.final.done { background: radial-gradient(circle at 35% 30%, #5c4710, #241c06); box-shadow: 0 0 0 2px #ffcb2f, 0 0 26px rgba(255, 203, 47, 0.45), 0 8px 18px rgba(0, 0, 0, 0.45); }
+.ops .jnode .lock { background: #0f2147; box-shadow: 0 0 0 2px rgba(148, 163, 196, 0.5); }
+.ops .jnode .check { background: var(--ops-ok); box-shadow: 0 0 0 3px #0b1733; }
+.ops .jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, opsPulse 1.8s ease-out 0.9s infinite; }
+@keyframes opsPulse {
+  0% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 2px rgba(79, 224, 255, 0.6), 0 8px 18px rgba(0, 0, 0, 0.45); }
+  70% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 24px rgba(79, 224, 255, 0), 0 8px 18px rgba(0, 0, 0, 0.45); }
+  100% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 2px rgba(79, 224, 255, 0), 0 8px 18px rgba(0, 0, 0, 0.45); }
+}
+
+.jmascot.ops-pin { width: auto; height: auto; padding-bottom: 8px; }
+.ops-pin .pin-label {
+  position: relative;
+  display: block;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--ops-glow);
+  color: #06263a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 0 14px rgba(79, 224, 255, 0.6);
+  animation: bob 1.6s ease-in-out infinite;
+}
+.ops-pin .pin-label::after { content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent; border-bottom: 0; border-top-color: var(--ops-glow); }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+
+/* ─── Праздничный экран ──────────────────────────────────────────────── */
+
+body.no-scroll { overflow: hidden; }
+.celebrate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px 20px calc(20px + var(--safe-b));
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 38%, #1f6aa8 0%, #12346b 45%, #0b1630 100%);
+  animation: fade 0.25s ease;
+}
+.celebrate.leaving { opacity: 0; transition: opacity 0.25s; }
+.celebrate canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.celebrate .rays {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 190vmax;
+  height: 190vmax;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 0deg, rgba(255, 214, 81, 0.16) 0deg 9deg, transparent 9deg 18deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0 22%, transparent 55%);
+  mask-image: radial-gradient(circle, #000 0 22%, transparent 55%);
+  animation: raysSpin 22s linear infinite;
+}
+@keyframes raysSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.cele-card { position: relative; z-index: 1; width: 100%; max-width: 420px; text-align: center; color: #fff; }
+.cele-badge {
+  display: inline-block;
+  font-size: 112px;
+  line-height: 1;
+  filter: drop-shadow(0 0 28px rgba(255, 214, 81, 0.85));
+  animation: badgeIn 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, badgeWobble 2.6s ease-in-out 1.1s infinite;
+}
+@keyframes badgeIn { from { transform: scale(0) rotate(-35deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+@keyframes badgeWobble { 50% { transform: scale(1.07) rotate(5deg); } }
+.cele-title { margin-top: 14px; color: #fff; font-size: clamp(28px, 8vw, 38px); font-weight: 900; line-height: 1.15; text-shadow: 0 4px 0 rgba(0, 0, 0, 0.25); }
+.cele-title span { display: inline-block; animation: letterUp 0.55s cubic-bezier(0.2, 1.7, 0.4, 1) both; }
+@keyframes letterUp { from { transform: translateY(30px) scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.cele-sub { margin-top: 6px; font-size: 16px; font-weight: 700; opacity: 0.9; animation: fadeUp 0.5s 0.6s both; }
+.cele-stars { margin: 16px 0 8px; font-size: 54px; letter-spacing: 8px; line-height: 1; }
+.cele-stars span { display: inline-block; opacity: 0.22; filter: grayscale(1); transform: scale(0.6); transition: transform 0.4s cubic-bezier(0.2, 1.8, 0.4, 1), opacity 0.2s, filter 0.2s; }
+.cele-stars span.on { opacity: 1; filter: drop-shadow(0 0 12px rgba(255, 214, 81, 0.9)); transform: scale(1.18); }
+.cele-xp { display: inline-block; margin-top: 6px; padding: 8px 20px; border-radius: 999px; background: linear-gradient(90deg, #f5b800, #ffd451); color: #0d1b3d; font-size: 24px; font-weight: 900; box-shadow: 0 8px 24px rgba(245, 184, 0, 0.45); animation: celePop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) 1.2s both; }
+@keyframes celePop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.cele-badge-name { margin-top: 16px; padding: 10px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.13); font-weight: 800; animation: fadeUp 0.5s 1.6s both; }
+.cele-btn { margin-top: 24px; animation: fadeUp 0.5s 1.8s both; }
+.cele-sound { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: 14px; z-index: 2; width: 46px; height: 46px; border: 0; border-radius: 14px; background: rgba(255, 255, 255, 0.16); color: #fff; font-size: 22px; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
 /* ─── Доступность и большие экраны ───────────────────────────────────── */
 
