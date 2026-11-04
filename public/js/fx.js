@@ -12,6 +12,7 @@
     if (!soundOn()) return;
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
       const t0 = audio.currentTime + at;
       const osc = audio.createOscillator();
       const gain = audio.createGain();
@@ -26,6 +27,16 @@
     } catch { /* звук недоступен — не страшно */ }
   }
 
+  // Звук в браузере включается долго (на телефоне — до ~0,4 с, и всё это время экран стоит).
+  // Поэтому готовим его заранее: после первого касания, когда браузер свободен, — а не в момент
+  // праздника после миссии.
+  document.addEventListener('pointerdown', () => {
+    if (audio || !soundOn()) return;
+    const run = () => { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch { /* без звука */ } };
+    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 2000 });
+    else setTimeout(run, 300);
+  }, { once: true, capture: true });
+
   const fanfare = () => {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * 0.11, 0.25));
     [523.25, 659.25, 783.99, 1046.5].forEach((f) => tone(f, 0.5, 0.7, 'sine', 0.045));
@@ -35,7 +46,7 @@
   // ─── Салют на canvas ──────────────────────────────────────────────────
   function fireworks(canvas, duration = 3600) {
     const ctx = canvas.getContext('2d');
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
     const resize = () => {
       canvas.width = canvas.clientWidth * dpr;
       canvas.height = canvas.clientHeight * dpr;
@@ -49,7 +60,7 @@
       const x = W() * (0.15 + Math.random() * 0.7);
       const y = H() * (0.12 + Math.random() * 0.38);
       const color = colors[Math.floor(Math.random() * colors.length)];
-      const n = 70;
+      const n = 54;
       for (let i = 0; i < n; i++) {
         const a = (Math.PI * 2 * i) / n + Math.random() * 0.2;
         const s = (2.5 + Math.random() * 4.5) * dpr;
@@ -87,8 +98,8 @@
   }
 
   // ─── Экран празднования ───────────────────────────────────────────────
-  // celebrate({ emoji, title, subtitle, stars (0–3), xp, badge, button }) → Promise
-  SB.celebrate = function celebrate({ emoji, title, subtitle, stars = 0, xp = null, badge = null, button }) {
+  // celebrate({ emoji, title, subtitle, stars (0–3), xp, badge, bonus, button }) → Promise
+  SB.celebrate = function celebrate({ emoji, title, subtitle, stars = 0, xp = null, badge = null, bonus = null, button }) {
     return new Promise((resolve) => {
       const canvas = h('canvas', { 'aria-hidden': 'true' });
       const starEls = [0, 1, 2].map(() => h('span', null, '⭐'));
@@ -116,6 +127,7 @@
           stars > 0 && h('div', { class: 'cele-stars', 'aria-label': t('starsAria', { n: stars }) }, starEls),
           xp !== null && h('div', { class: 'cele-xp' }, '+', xpNum, ' XP'),
           badge && h('div', { class: 'cele-badge-name' }, badge),
+          bonus && h('div', { class: 'cele-bonus' }, bonus),
           btn));
       document.body.append(overlay);
       document.body.classList.add('no-scroll');
@@ -129,21 +141,21 @@
       fanfare();
       starEls.forEach((el, i) => {
         if (i >= stars) return;
-        timers.push(setTimeout(() => { el.classList.add('on'); ding(i); }, reducedMotion ? 0 : 700 + i * 380));
+        timers.push(setTimeout(() => { el.classList.add('on'); ding(i); }, reducedMotion ? 0 : 350 + i * 220));
       });
       if (xp !== null) {
-        const begin = reducedMotion ? 0 : 1300;
+        const begin = reducedMotion ? 0 : 550;
         timers.push(setTimeout(() => {
           const t0 = performance.now();
           const step = (now) => {
-            const k = Math.min(1, (now - t0) / 800);
+            const k = Math.min(1, (now - t0) / 600);
             xpNum.textContent = String(Math.round(xp * (1 - Math.pow(1 - k, 3))));
             if (k < 1) requestAnimationFrame(step);
           };
           requestAnimationFrame(step);
         }, begin));
       }
-      setTimeout(() => btn.focus({ preventScroll: true }), 400);
+      setTimeout(() => btn.focus({ preventScroll: true }), 300);
 
       btn.addEventListener('click', () => {
         timers.forEach(clearTimeout);
@@ -157,6 +169,10 @@
       });
     });
   };
+
+  // Звуки для мини-игры (game.js): тот же синтезатор и тот же выключатель 🔊
+  SB.tone = tone;
+  SB.soundOn = soundOn;
 
   // Искры вокруг элемента (открытие новой точки на карте)
   SB.sparkle = function sparkle(el) {

@@ -46,6 +46,18 @@
     del(k) { try { localStorage.removeItem('sb:' + k); } catch { delete memory[k]; } },
   };
 
+  // Переезд со старого адреса (.vercel.app): страница-переадресация передаёт вход ученика
+  // и язык в адресе после «#» (эта часть адреса не уходит на сервер). Забираем их и сразу
+  // убираем из адресной строки. Уже имеющийся вход на новом сайте не перезаписываем.
+  try {
+    const moved = /^#move=([a-f0-9]{48})(?:\.(kk|ru))?$/.exec(location.hash);
+    if (moved) {
+      if (!store.get('token')) store.set('token', moved[1]);
+      if (moved[2] && !store.get('lang')) store.set('lang', moved[2]);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  } catch { /* не мешаем запуску игры */ }
+
   async function api(path, opts = {}) {
     const t = (k) => (window.SB.t ? window.SB.t(k) : k);
     const headers = { 'X-Lang': window.SB.lang || 'ru' };

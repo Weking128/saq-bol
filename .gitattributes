@@ -1,0 +1,3 @@
+# Скрипты для Linux-сервера должны оставаться с переводами строк LF
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf

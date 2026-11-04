@@ -1,0 +1,6 @@
+{
+  "name": "saq-bol-redirect",
+  "private": true,
+  "type": "module",
+  "description": "Старый адрес на Vercel: переадресация на сайт на сервере в Казахстане"
+}

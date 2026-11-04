@@ -5,22 +5,65 @@
   'use strict';
   const { h, sleep, shuffle, pick, sheet, toast, mascot, icon, fmt, reducedMotion, t } = SB;
 
-  function header(step) {
+  // ── Озвучка для 1–6 классов: кнопка «Послушать» (многие дети только учатся читать).
+  // Голос берётся из телефона; если голоса для языка нет, кнопка не показывается.
+  const synth = window.speechSynthesis;
+  const voiceFor = () => {
+    try {
+      return (synth && synth.getVoices().find((v) => (v.lang || '').toLowerCase().replace('_', '-').startsWith(SB.lang))) || null;
+    } catch { return null; }
+  };
+  // Эмодзи и кавычки голосом не читаем
+  const forSpeech = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}«»"]/gu, '').replace(/\s+/g, ' ').trim();
+  function speak(parts) {
+    const v = voiceFor();
+    if (!v) return;
+    try {
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance([parts].flat(Infinity).map(forSpeech).filter(Boolean).join('. '));
+      u.voice = v;
+      u.lang = v.lang;
+      u.rate = 0.92;
+      synth.speak(u);
+    } catch { /* озвучка недоступна */ }
+  }
+  const stopSpeech = () => { try { if (synth) synth.cancel(); } catch { /* нет озвучки */ } };
+  const listenBtn = (getParts) => h('button', { class: 'listen', type: 'button', hidden: !voiceFor(), onclick: () => speak(getParts()) }, t('listen'));
+  try {
+    // Голоса в Chrome загружаются не сразу — показываем кнопки, когда они появятся
+    if (synth && synth.addEventListener) {
+      synth.addEventListener('voiceschanged', () => {
+        const ok = !!voiceFor();
+        document.querySelectorAll('.listen').forEach((b) => { b.hidden = !ok; });
+      });
+    }
+  } catch { /* нет озвучки */ }
+  const junior = () => document.body.classList.contains('junior');
+
+  // extra() — что ещё прочитать вслух (варианты ответа, текущая карточка, сообщения чата)
+  function header(step, extra) {
     return [
       step.kicker && h('div', { class: 'step-kicker' }, step.kicker),
       step.title && h('h2', { class: 'step-title' }, step.title),
       step.say && h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, step.say)),
       step.prompt && h('p', { class: 'lesson' }, step.prompt),
+      junior() && listenBtn(() => [step.title, step.say, step.prompt, extra ? extra() : []]),
     ];
   }
 
   const engines = {
     // ── Урок ────────────────────────────────────────────────────────────
+    // pics: [{ e: эмодзи, t: подпись }] — крупные картинки (облегчённая версия), rule — правило
     lesson(step, root) {
       return new Promise((resolve) => {
+        const pics = step.pics && h('div', { class: `pics n${step.pics.length}` }, step.pics.map((p, i) =>
+          h('div', { class: 'pic', style: { animationDelay: `${0.08 + i * 0.12}s` } },
+            h('span', { class: 'emo', 'aria-hidden': 'true' }, p.e), h('b', null, p.t))));
         root.replaceChildren(h('div', { class: 'stack' },
-          header(step),
+          header(step, () => [(step.pics || []).map((p) => p.t), step.rule]),
+          pics,
           step.html && h('div', { class: 'lesson stack', html: step.html }),
+          step.rule && h('div', { class: 'rule big' }, step.rule),
           h('button', { class: 'btn', onclick: () => resolve({ score: 0, max: 0 }) }, step.button || t('further'))));
       });
     },
@@ -37,7 +80,7 @@
         const bins = h('div', { class: 'bins' }, step.bins.map((b) =>
           h('button', { class: `bin tone-${b.tone || 'sky'}`, onclick: () => choose(b.id) },
             h('span', { class: 'emo', 'aria-hidden': 'true' }, b.emoji), b.label)));
-        root.replaceChildren(h('div', { class: 'stack' }, header(step), h('div', { class: 'sort-stage' }, counter, itemBox, bins)));
+        root.replaceChildren(h('div', { class: 'stack' }, header(step, () => [items[i] && items[i].text, step.bins.map((b) => b.label)]), h('div', { class: 'sort-stage' }, counter, itemBox, bins)));
 
         function show() {
           const it = items[i];
@@ -78,7 +121,7 @@
         const buttons = opts.map((o, k) =>
           h('button', { class: 'option', onclick: () => choose(k) }, h('span', { class: 'key' }, keys[k]), h('span', null, o.text)));
         root.replaceChildren(h('div', { class: 'stack' },
-          header({ ...step, title: step.title || t('situation') }),
+          header({ ...step, title: step.title || t('situation') }, () => [step.q, opts.map((o, k) => `${keys[k]}. ${o.text}`)]),
           h('div', { class: 'q-text' }, step.q),
           h('div', { class: 'options' }, buttons)));
 
@@ -188,7 +231,8 @@
         const chat = h('div', { class: `chat chat-${style}` },
           h('div', { class: 'chat-head' }, h('div', { class: 'av', 'aria-hidden': 'true' }, step.contact.avatar), h('div', null, h('b', null, step.contact.name), status)),
           body, choices);
-        root.replaceChildren(h('div', { class: 'stack' }, header(step), chat));
+        let spoken = [];
+        root.replaceChildren(h('div', { class: 'stack' }, header(step, () => spoken), chat));
 
         let score = 0;
         let timer = null;
@@ -223,6 +267,7 @@
 
         async function go(id) {
           const node = step.nodes[id];
+          spoken = [(node.msgs || []).filter((m) => m.from !== 'me').map((m) => m.text), (node.choices || []).map((c) => c.text)];
           choices.replaceChildren();
           for (const m of node.msgs || []) await add(m);
           if (node.end) {
@@ -329,6 +374,7 @@
       fill.style.width = `${(i / mission.steps.length) * 100}%`;
       const step = mission.steps[i];
       const r = await engines[step.type](step, stage);
+      stopSpeech();
       if (!stage.isConnected) return null; // игрок вышел из миссии
       score += r.score;
       max += r.max;
@@ -339,4 +385,6 @@
   }
 
   SB.runMission = runMission;
+  SB.listenBtn = listenBtn;
+  SB.stopSpeech = stopSpeech;
 })();

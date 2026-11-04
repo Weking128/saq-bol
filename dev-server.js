@@ -70,7 +70,7 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const { pathname } = url;
   if (pathname.startsWith('/api/')) {
@@ -85,4 +85,15 @@ http.createServer((req, res) => {
   console.log(`Сақ бол! запущен: http://localhost:${PORT}  (админка: http://localhost:${PORT}/admin)`);
   if (!process.env.MONGODB_URI) console.warn('Внимание: не задана MONGODB_URI — создайте файл .env по образцу .env.example');
   if (!process.env.ADMIN_PASSWORD) console.warn('Внимание: не задан ADMIN_PASSWORD — вход в админку будет недоступен');
+});
+
+// За прокси (Caddy/nginx) соединения переиспользуются: держим их дольше, чем прокси,
+// чтобы Node не закрыл соединение в момент, когда по нему уже идёт запрос.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
+// Аккуратная остановка (docker stop, перезапуск): дорабатываем начатые запросы и выходим
+process.on('SIGTERM', () => {
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 10_000).unref();
 });

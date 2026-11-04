@@ -394,7 +394,9 @@
   }
 
   function analyticsView(a) {
-    const titles = Object.fromEntries(((SB.MISSIONS_BY_LANG || {}).ru || []).map((m) => [m.id, m.title]));
+    // У 1–6 классов под тем же id своя миссия — показываем оба названия
+    const junior = Object.fromEntries(((SB.JUNIOR_MISSIONS_BY_LANG || {}).ru || []).map((m) => [m.id, m.title]));
+    const titles = Object.fromEntries(((SB.MISSIONS_BY_LANG || {}).ru || []).map((m) => [m.id, junior[m.id] ? `${m.title} / 1–6 кл.: ${junior[m.id]}` : m.title]));
     const L = a.live;
     return h('div', null,
       h('section', { class: 'panel a-section' },
@@ -647,7 +649,7 @@
         h('dt', null, 'Лучший результат'), h('dd', null, p.attemptsCount ? `${p.bestScore} из 10 (попыток: ${p.attemptsCount})` : 'тест не проходил(а)'),
         h('dt', null, 'Сертификат'), h('dd', null, p.certNumber ? `№ ${p.certNumber} от ${d(p.passedAt)}` : '—')),
       h('h3', null, 'Миссии'),
-      h('div', { class: 'mgrid' }, ((SB.MISSIONS_BY_LANG || {}).ru || []).filter((m) => !p.missionIds || p.missionIds.includes(m.id)).map((m, i) => {
+      h('div', { class: 'mgrid' }, (((p.level === 'junior' ? SB.JUNIOR_MISSIONS_BY_LANG : SB.MISSIONS_BY_LANG) || {}).ru || []).filter((m) => !p.missionIds || p.missionIds.includes(m.id)).map((m, i) => {
         const r = p.missions[m.id];
         return h('div', { class: 'mcell' + (r ? '' : ' off') }, h('b', null, `${i + 1}. ${m.title}`), r ? `${r.score} из ${r.max} · ${d(r.at)}` : 'не пройдена');
       })),
@@ -822,6 +824,11 @@
     field('cert_prefix', 'Префикс номера сертификата', 'Латинские буквы и цифры, например SB'),
     field('contacts', 'Контакты в подвале сайта', 'Каждый контакт — с новой строки', 'textarea'),
     field('contacts_kk', 'Контакты в подвале — на казахском', 'Если поле пустое, показывается русский вариант', 'textarea'),
+    h('label', null, 'Рейтинг в мини-игре «Сейф-пазл»',
+      h('small', null, 'Ученики видят соперников из своей школы (имя, первая буква фамилии, класс) и общий рекорд (инициалы и школа). Если выключить — остаётся только личный рекорд'),
+      h('select', { class: 'ctl', name: 'game_rating' },
+        h('option', { value: 'on', selected: s.game_rating !== 'off' }, 'Показывать'),
+        h('option', { value: 'off', selected: s.game_rating === 'off' }, 'Не показывать'))),
     h('div', null, h('button', { class: 'abtn', type: 'submit' }, 'Сохранить настройки')));
 
     main.append(

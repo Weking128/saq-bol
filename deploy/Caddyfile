@@ -1,0 +1,39 @@
+# SITE_DOMAIN задаётся в deploy/.env, например quest.example.kz
+# (для проверки на своём компьютере без домена — :80, тогда сайт работает по http)
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 1MB
+	}
+
+	header {
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# API — в приложение. Настоящий IP ученика передаётся в X-Real-IP (для лимитов регистраций);
+	# присланный снаружи X-Forwarded-For Caddy не доверяет и заменяет.
+	handle /api/* {
+		reverse_proxy app:3000 {
+			header_up X-Real-IP {remote_host}
+			transport http {
+				keepalive 30s
+			}
+		}
+	}
+
+	# Страницы, скрипты, картинки — напрямую с диска, без нагрузки на приложение
+	handle {
+		root * /srv/public
+		@admin path /admin /admin.html
+		header @admin X-Robots-Tag "noindex, nofollow"
+		header Cache-Control "no-cache"
+		try_files {path} {path}.html
+		file_server
+	}
+}

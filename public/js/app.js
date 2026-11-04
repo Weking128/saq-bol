@@ -3,11 +3,12 @@
 // Все тексты интерфейса — через SB.t() (словарь в i18n.js).
 (function () {
   'use strict';
-  const { h, api, store, sheet, toast, confetti, mascot, icon, sleep, t } = SB;
+  const { h, api, store, sheet, toast, confetti, mascot, icon, sleep, fmt, t } = SB;
 
   const app = document.getElementById('app');
   const topRight = document.getElementById('top-right');
-  const state = { config: null, me: null, institutions: null, quiz: null, page: '' };
+  // cleanup — что убрать при уходе с экрана (например, обработчики мини-игры)
+  const state = { config: null, me: null, institutions: null, quiz: null, page: '', cleanup: null };
 
   const RANK_XP = [0, 100, 200, 300, 450];
   const TYPE_TABS = [
@@ -20,13 +21,24 @@
 
   const missionDone = (id) => !!(state.me && state.me.missions[id]);
   const isJunior = () => !!(state.me && state.me.level === 'junior');
-  // Миссии участника: для 1–6 классов — облегчённый набор и без шагов с пометкой junior: false
+  // Миссии участника: для 1–6 классов — своё, облегчённое содержание (SB.JUNIOR_MISSIONS),
+  // набор id приходит с сервера (MISSION_SETS в lib/app.js)
   function missionsFor() {
     const ids = (state.me && state.me.missionIds) || SB.MISSIONS.map((m) => m.id);
-    return SB.MISSIONS.filter((m) => ids.includes(m.id))
-      .map((m) => (isJunior() ? { ...m, steps: m.steps.filter((s) => s.junior !== false) } : m));
+    return (isJunior() ? SB.JUNIOR_MISSIONS : SB.MISSIONS).filter((m) => ids.includes(m.id));
   }
+  const memoFor = () => (isJunior() ? SB.JUNIOR_MEMO : SB.MEMO);
   const allMissionsDone = () => missionsFor().every((m) => missionDone(m.id));
+  // Первая непройденная миссия — куда звать за новыми раундами мини-игры
+  function nextMissionInfo() {
+    const missions = missionsFor();
+    const i = missions.findIndex((m) => !missionDone(m.id));
+    return i < 0 ? null : { n: i + 1, id: missions[i].id, title: missions[i].title };
+  }
+  const gameBtnLabel = () => {
+    const g = SB.game.info(state.me);
+    return t('gameBtn', { n: g.unlimited ? '∞' : g.left });
+  };
 
   function rankOf(me) {
     if (me.passed) return t('rankFinal');
@@ -35,10 +47,8 @@
     return t(`rank${r}`);
   }
 
-  function starsFor(score, max) {
-    const pct = max ? score / max : 1;
-    return pct >= 0.9 ? 3 : pct >= 0.6 ? 2 : 1;
-  }
+  // Звёзды за миссию (3 звезды дают «Новые фигуры» в мини-игре) — одна функция на весь сайт
+  const starsFor = (score, max) => SB.game.starsFor(score, max);
 
   const starsText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
 
@@ -78,8 +88,8 @@
 
   function updateTopbar() {
     topRight.replaceChildren();
-    // Во время миссии и теста язык не переключаем, чтобы не потерять прогресс
-    const busy = state.page === 'mission' || (state.page === 'quiz' && state.quiz);
+    // Во время миссии, теста и мини-игры язык не переключаем, чтобы не потерять прогресс
+    const busy = state.page === 'mission' || state.page === 'game' || (state.page === 'quiz' && state.quiz);
     if (!busy) topRight.append(SB.langSwitch(changeLang));
     if (!state.me) return;
     topRight.append(
@@ -115,13 +125,14 @@
   function renderWelcome() {
     const c = state.config;
     const me = state.me;
+    const missions = me ? missionsFor() : SB.MISSIONS;
     app.replaceChildren(h('div', { class: 'stack' },
       h('section', { class: 'hero' },
         mascot(),
         h('h1', null, 'Сақ бол!'),
         h('p', { class: 'tagline' }, t('tagline')),
         h('div', { class: 'features' },
-          h('div', null, h('b', null, '5'), t('featMissions')),
+          h('div', null, h('b', null, String(missions.length)), t('featMissions')),
           h('div', null, h('b', null, String(c.quizSize)), t('featQuestions')),
           h('div', null, h('b', null, '🎓'), t('featCert'))),
         h('p', { class: 'org' }, c.orgName)),
@@ -133,7 +144,7 @@
           h('button', { class: 'btn ghost', onclick: logout }, t('otherParticipant')))
         : h('button', { class: 'btn gold', onclick: () => go('#/register') }, t('startQuest')),
       h('h2', { style: { fontSize: '20px', marginTop: '22px' } }, t('whatAwaits')),
-      h('div', { class: 'topics' }, SB.MISSIONS.map((m, i) =>
+      h('div', { class: 'topics' }, missions.map((m, i) =>
         h('div', { class: 'topic' }, h('span', { class: 'emo' }, m.emoji), h('b', null, `${i + 1}. ${m.title}`), m.desc)),
         h('div', { class: 'topic' }, h('span', { class: 'emo' }, '🎓'), h('b', null, t('finalTest')), t('finalTestDesc', { n: c.quizSize })))));
   }
@@ -384,6 +395,7 @@
             h('i', { style: { width: `${Math.min(100, (me.xp / (total * 100)) * 100)}%` } }))),
         h('div', { class: 'badges', 'aria-label': t('badges') }, missions.map((m) =>
           h('div', { class: 'badge' + (missionDone(m.id) ? ' on' : ''), title: m.badge.name, 'aria-label': missionDone(m.id) ? t('badgeEarned', { name: m.badge.name }) : m.badge.name }, m.badge.emoji)))),
+      gameCard(),
       isJunior() && h('div', null, h('span', { class: 'route-note' }, t('juniorRoute'))),
       finalAvailable && !me.passed && h('div', { class: 'rule' }, t('allMissionsDone')),
       missionMap(missions),
@@ -409,8 +421,8 @@
           mascotEl.style.left = target.left;
           mascotEl.style.top = target.top;
           cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        }, 450);
-        setTimeout(() => { cur.classList.remove('waiting'); cur.classList.add('unlock'); SB.sparkle(cur); }, 1700);
+        }, 250);
+        setTimeout(() => { cur.classList.remove('waiting'); cur.classList.add('unlock'); SB.sparkle(cur); }, 1150);
         return;
       }
     }
@@ -507,6 +519,41 @@
         ops ? h('span', { class: 'pin-label' }, t('opsHere')) : mascot()));
   }
 
+  // Карточка мини-игры на карте: закрыта до первой миссии, дальше — рекорд и раунды
+  function gameCard() {
+    const g = SB.game.info(state.me);
+    // 7+ классы — строгая карточка в стиле оперативной карты
+    const logo = h('span', { class: 'gc-logo', html: g.ops ? SB.game.LOGO_OPS : SB.game.LOGO });
+    const ops = g.ops ? ' ops' : '';
+    if (!g.unlocked) {
+      return h('button', { class: 'game-card locked' + ops, type: 'button', onclick: () => toast(t('gameLockedToast')) },
+        logo,
+        h('span', { class: 'gc-meta' }, h('b', null, t('gameName')), h('small', null, `🔒 ${t('gameLocked')}`)));
+    }
+    return h('button', { class: 'game-card' + ops, type: 'button', onclick: () => go('#/game') },
+      logo,
+      h('span', { class: 'gc-meta' },
+        h('b', null, t('gameName'), g.ops ? h('span', { class: 'gc-mode' }, t('gameModeOps')) : null),
+        h('small', null, g.best ? `🏆 ${t('gameBest')}: ${fmt(g.best)}` : t('gameTag'))),
+      h('span', { class: 'gc-side' },
+        h('span', { class: 'gc-play' }, g.hasRound ? t('gameResume') : t('gamePlayShort')),
+        h('span', { class: 'gc-rounds' }, `🎟️ ${g.unlimited ? '∞' : g.left} · 🔄 ${g.spins}`)));
+  }
+
+  function renderGame() {
+    if (!SB.game.info(state.me).unlocked) {
+      toast(t('gameLockedToast'));
+      return go('#/map');
+    }
+    state.cleanup = SB.game.render(app, {
+      me: state.me,
+      rating: !!(state.config && state.config.gameRating),
+      nextMission: nextMissionInfo(),
+      tips: memoFor(),
+      go,
+    });
+  }
+
   async function openMissionCard(m, i, done) {
     const r = state.me.missions[m.id];
     const ok = await sheet({
@@ -544,23 +591,35 @@
 
     const max = Math.max(1, result.max);
     const score = Math.min(result.score, max);
-    try {
-      state.me = (await api('/api/progress', { method: 'POST', body: { missionId: id, score, max } })).participant;
-    } catch (e) {
-      // Не теряем прохождение из-за кратковременной потери связи
-      for (let attempt = 0; attempt < 3 && !state.me.missions[id]; attempt++) {
-        await sleep(1500);
-        try { state.me = (await api('/api/progress', { method: 'POST', body: { missionId: id, score, max } })).participant; } catch { /* повтор */ }
+    const doneBefore = state.me.missionsDone;
+    const prevBest = state.me.missions[id]; // лучший результат этой миссии до прохождения
+    const here = location.hash;
+    // Результат сохраняется параллельно с праздником: экран не ждёт ответа сервера
+    // (раньше после последнего ответа экран «замирал», пока шёл запрос). Повторы — на случай
+    // кратковременной потери связи.
+    const save = async () => {
+      let err = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) await sleep(1500);
+        try {
+          state.me = (await api('/api/progress', { method: 'POST', body: { missionId: id, score, max } })).participant;
+          return null;
+        } catch (e) { err = e; }
       }
-      if (!state.me.missions[id]) return showError(e, () => renderMission(id));
-    }
-    updateTopbar(); // обновить очки; переключатель языка остаётся скрытым до перехода на другой экран
+      return err;
+    };
+    let saved = false;
+    const saving = save().then((e) => { saved = true; return e; });
 
     const stars = starsFor(score, max);
     const xp = Math.round((score / max) * 100);
     const next = missions[idx + 1];
 
-    // Праздник!
+    // Праздник! Новая миссия — раунд мини-игры, впервые 3 звезды — «Новые фигуры»
+    const gotRound = firstTime && !state.me.passed;
+    const had3 = !!prevBest && starsFor(prevBest.score, prevBest.max) === 3;
+    const gotSpin = stars === 3 && !had3;
+    const bonusLines = [gotRound && t(doneBefore ? 'gameBonus' : 'gameBonusFirst'), gotSpin && t('gameSpinBonus')].filter(Boolean);
     await SB.celebrate({
       emoji: mission.badge.emoji,
       title: t('missionComplete'),
@@ -568,8 +627,21 @@
       stars,
       xp,
       badge: firstTime ? t('newBadge', { name: mission.badge.name }) : null,
+      bonus: bonusLines.length ? bonusLines.flatMap((l, i) => (i ? [h('br'), l] : [l])) : null,
       button: t('hooray'),
     });
+    if (location.hash !== here) return; // ушли с экрана во время праздника
+    // Обычно ответ уже пришёл; при медленной связи — понятная надпись вместо «зависания»
+    if (!saved) app.replaceChildren(h('div', { class: 'empty' }, t('savingResult')));
+    let err = await saving;
+    while (err) {
+      await new Promise((resolve) => showError(err, resolve));
+      if (location.hash !== here) return;
+      app.replaceChildren(h('div', { class: 'empty' }, t('savingResult')));
+      err = await save();
+    }
+    if (location.hash !== here) return;
+    updateTopbar(); // обновить очки; переключатель языка остаётся скрытым до перехода на другой экран
     state.justCompleted = id;
 
     app.replaceChildren(h('div', { class: 'stack finish' },
@@ -581,10 +653,15 @@
       h('div', { class: 'card stack-sm', style: { textAlign: 'left' } },
         h('b', null, t('rememberMain')),
         h('ul', { class: 'lesson', style: { margin: 0, paddingLeft: '20px' } }, mission.recap.map((r) => h('li', null, r)))),
+      // Не 3 звезды и «Новые фигуры» за эту миссию ещё не получены — зовём пройти ещё раз
+      stars < 3 && !had3 && h('div', { class: 'rule blue stack-sm' },
+        h('div', null, t('gameSpinFinish')),
+        h('button', { class: 'btn small ghost', onclick: () => go(`#/mission/${id}`) }, t('replayBtn'))),
       next
         ? h('button', { class: 'btn gold', onclick: () => go('#/map') }, t('toMapNext'))
         : h('button', { class: 'btn gold', onclick: () => go('#/memo') }, t('toFinalTest')),
-      next && h('button', { class: 'btn ghost', onclick: () => go(`#/mission/${next.id}`) }, t('nextMission', { n: idx + 2, title: next.title }))));
+      next && h('button', { class: 'btn ghost', onclick: () => go(`#/mission/${next.id}`) }, t('nextMission', { n: idx + 2, title: next.title })),
+      h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel())));
   }
 
   // ─── Памятка ──────────────────────────────────────────────────────────
@@ -595,8 +672,9 @@
       h('div', { class: 'row' },
         h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => go('#/map') }, icon('back')),
         h('h2', { class: 'step-title' }, t('memoTitle'))),
-      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, t('memoSay'))),
-      h('div', { class: 'stack-sm' }, SB.MEMO.filter((m) => !isJunior() || m.junior !== false).map((m, i) =>
+      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, isJunior() ? t('memoSayJr') : t('memoSay'))),
+      isJunior() && SB.listenBtn(() => [t('memoTitle'), memoFor().map((m) => m.text)]),
+      h('div', { class: 'stack-sm memo-list' }, memoFor().map((m, i) =>
         h('div', { class: 'card row', style: { alignItems: 'flex-start', padding: '14px' } },
           h('span', { style: { fontSize: '26px', lineHeight: '1' }, 'aria-hidden': 'true' }, m.emoji),
           h('span', null, h('b', null, `${i + 1}. `), m.text)))),
@@ -630,12 +708,17 @@
       h('div', { class: 'row' },
         h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => go('#/map') }, icon('back')),
         h('h2', { class: 'step-title' }, t('finalTest'))),
-      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, t('quizSay'))),
-      h('div', { class: 'card stack-sm' },
-        h('p', null, t('quizRule1', { n: c.quizSize })),
-        h('p', null, t('quizRule2', { p: c.passScore })),
-        h('p', null, t('quizRule3')),
-        h('p', null, t('quizRule4'))),
+      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, isJunior() ? t('quizSayJr') : t('quizSay'))),
+      isJunior()
+        ? h('div', { class: 'card stack-sm' },
+          h('p', null, t('quizRule1Jr', { n: c.quizSize })),
+          h('p', null, t('quizRule2Jr', { p: c.passScore })),
+          h('p', null, t('quizRule3Jr')))
+        : h('div', { class: 'card stack-sm' },
+          h('p', null, t('quizRule1', { n: c.quizSize })),
+          h('p', null, t('quizRule2', { p: c.passScore })),
+          h('p', null, t('quizRule3')),
+          h('p', null, t('quizRule4'))),
       state.me.attemptsCount ? h('p', { class: 'muted small center' }, t('attemptsInfo', { a: state.me.attemptsCount, b: state.me.bestScore ?? 0, n: c.quizSize })) : null,
       start,
       h('button', { class: 'btn ghost', onclick: () => go('#/memo') }, t('repeatMemo'))));
@@ -693,6 +776,7 @@
         h('span', { class: 'pill' }, q.topic),
         h('span', { class: 'muted small' }, t('questionOf', { i: qz.index + 1, n: qz.questions.length }))),
       h('div', { class: 'q-text' }, q.q),
+      isJunior() && SB.listenBtn(() => [q.q, q.options.map((o, k) => `${keys[k]}. ${o}`)]),
       h('div', { class: 'options' }, opts),
       h('div', { class: 'btn-row' },
         qz.index > 0 && h('button', { class: 'btn ghost', style: { flex: '0 0 30%' }, 'aria-label': t('back'), onclick: () => { qz.index -= 1; renderQuestion(); } }, '←'),
@@ -723,7 +807,7 @@
 
   async function renderResult(res) {
     if (res.passed) {
-      await SB.celebrate({ emoji: '🏆', title: t('testPassedWow'), subtitle: t('rankFinal'), stars: 3, button: t('hooray') });
+      await SB.celebrate({ emoji: '🏆', title: t('testPassedWow'), subtitle: t('rankFinal'), stars: 3, bonus: t('gameBonusFull'), button: t('hooray') });
     }
     const reviewBox = h('div', { hidden: true }, reviewList(res.review));
     const toggle = h('button', {
@@ -787,6 +871,7 @@
       h('p', { class: 'muted small center' }, t('certNote', { num: data.number })),
       pdfBtn, shareBtn, pngBtn,
       h('div', { class: 'rule blue' }, t('tellFriends')),
+      h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel()),
       h('button', { class: 'btn ghost', onclick: () => go('#/memo') }, t('memoBtn')),
       h('button', { class: 'link-btn', onclick: logout }, t('finishAndExit'))));
   }
@@ -795,8 +880,12 @@
 
   function route() {
     const [, page, arg] = (location.hash.replace(/^#/, '') || '/').split('/');
+    if (state.cleanup) { state.cleanup(); state.cleanup = null; }
+    SB.stopSpeech();
     state.page = page || '';
     if (page !== 'quiz') state.quiz = null;
+    // 1–6 классы: крупнее шрифт и кнопки (стили body.junior в app.css)
+    document.body.classList.toggle('junior', isJunior());
     updateTopbar();
     window.scrollTo(0, 0);
     if (!state.me) return page === 'register' ? renderRegister() : renderWelcome();
@@ -805,6 +894,7 @@
       case 'mission': return renderMission(arg);
       case 'memo': return renderMemo();
       case 'quiz': return renderQuizIntro();
+      case 'game': return renderGame();
       case 'certificate': return renderCertificate();
       case 'register': return go('#/map');
       default: return renderWelcome();
