@@ -8,10 +8,23 @@
   let audio = null;
   const soundOn = () => store.get('sound') !== 'off';
 
+  // Звук в браузере включается долго (на телефоне — до ~0,2–0,5 с, и всё это время экран
+  // стоит). Поэтому сам звук никогда не запускается посреди касания или праздника: его готовим
+  // заранее, в свободное время (после первого касания и при входе в игру). Пока не готов —
+  // короткий звук просто пропускается.
+  let warming = false;
+  function warmAudio() {
+    if (audio || warming || !soundOn()) return;
+    warming = true;
+    const run = () => { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch { /* без звука */ } };
+    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 1500 });
+    else setTimeout(run, 300);
+  }
+
   function tone(freq, at, dur, type = 'triangle', vol = 0.07) {
     if (!soundOn()) return;
+    if (!audio) { warmAudio(); return; }
     try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
       if (audio.state === 'suspended') audio.resume();
       const t0 = audio.currentTime + at;
       const osc = audio.createOscillator();
@@ -27,15 +40,7 @@
     } catch { /* звук недоступен — не страшно */ }
   }
 
-  // Звук в браузере включается долго (на телефоне — до ~0,4 с, и всё это время экран стоит).
-  // Поэтому готовим его заранее: после первого касания, когда браузер свободен, — а не в момент
-  // праздника после миссии.
-  document.addEventListener('pointerdown', () => {
-    if (audio || !soundOn()) return;
-    const run = () => { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch { /* без звука */ } };
-    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 2000 });
-    else setTimeout(run, 300);
-  }, { once: true, capture: true });
+  document.addEventListener('pointerdown', warmAudio, { once: true, capture: true });
 
   const fanfare = () => {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * 0.11, 0.25));
@@ -173,6 +178,7 @@
   // Звуки для мини-игры (game.js): тот же синтезатор и тот же выключатель 🔊
   SB.tone = tone;
   SB.soundOn = soundOn;
+  SB.warmAudio = warmAudio;
 
   // Искры вокруг элемента (открытие новой точки на карте)
   SB.sparkle = function sparkle(el) {

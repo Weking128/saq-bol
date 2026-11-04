@@ -28,7 +28,7 @@
     } catch { /* озвучка недоступна */ }
   }
   const stopSpeech = () => { try { if (synth) synth.cancel(); } catch { /* нет озвучки */ } };
-  const listenBtn = (getParts) => h('button', { class: 'listen', type: 'button', hidden: !voiceFor(), onclick: () => speak(getParts()) }, t('listen'));
+  const listenBtn = (getParts) => h('button', { class: 'listen', type: 'button', hidden: !voiceFor(), 'aria-label': t('listenAria'), title: t('listenAria'), onclick: () => speak(getParts()) }, t('listen'));
   try {
     // Голоса в Chrome загружаются не сразу — показываем кнопки, когда они появятся
     if (synth && synth.addEventListener) {

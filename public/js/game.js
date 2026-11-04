@@ -394,58 +394,132 @@
 
     function roundsLine(g) { return g.unlimited ? '∞' : String(g.left); }
     function modeTag() { return mode.ops && h('span', { class: 'g-mode' }, '● ', t('gameModeOps')); }
+    function levelKey() { return mode.ops ? 'gameLevelChipSr' : 'gameLevelChipJr'; }
+
+    // Экраны игры — почти без слов: цифры и иконки, правила — по «?», приватность — по «i»
+    function head() {
+      return h('div', { class: 'row g-head' },
+        h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => ctx.go('#/map') }, icon('back')),
+        h('span', { class: 'g-logo-sm', html: mode.ops ? LOGO_OPS : LOGO }),
+        h('div', { class: 'g-head-title' }, h('h2', { class: 'step-title' }, t('gameName')), modeTag()),
+        h('button', { class: 'g-q', type: 'button', 'aria-label': t('gameRulesTitle'), onclick: showRules }, '?'));
+    }
+    function stat(ico, val, label) {
+      return h('div', { 'aria-label': `${label}: ${val}`, title: label },
+        h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('b', null, val));
+    }
+    function stats(g) {
+      return h('div', { class: 'g-stats' },
+        stat('🏆', fmt(g.best), t('gameBest')),
+        stat('🎟️', roundsLine(g), t('gameRounds')),
+        stat('🔄', String(g.spins), t('gameSpins')));
+    }
+    function showRules() {
+      const rules = [
+        ['🧩', t('gameR1')],
+        ['🎟️', t('gameR2')],
+        ['🔄', t('gameR3')],
+        ['🎓', t('gameR4')],
+        ['🏅', t(mode.ops ? 'gameRLevelSr' : 'gameRLevelJr')],
+      ];
+      sheet({
+        emoji: '❓',
+        title: t('gameRulesTitle'),
+        content: h('div', { class: 'g-rules-list' }, rules.map(([ico, text]) =>
+          h('div', { class: 'g-rule' }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', null, text)))),
+        actions: [{ label: 'OK' }],
+        dismissible: true,
+      });
+    }
+    function showPrivacy() {
+      sheet({ emoji: 'ℹ️', title: t('gameInfo'), text: t('gamePrivacy'), actions: [{ label: 'OK' }], dismissible: true });
+    }
+    // Главная кнопка внизу: продолжить / играть / за новым раундом в миссию / к тесту
+    function mainButton(g, resume, again = false) {
+      const nm = ctx.nextMission;
+      if (resume) return h('button', { class: 'btn gold', onclick: () => play(resume) }, t('gameContinue'));
+      if (g.unlimited || g.left > 0) return h('button', { class: 'btn gold', onclick: start }, again ? t('gameAgain') : t('gamePlay'));
+      return nm
+        ? h('button', { class: 'btn', onclick: () => ctx.go(`#/mission/${nm.id}`) }, '🎟️ 0 · ', t('gameToMission', { n: nm.n }))
+        : h('button', { class: 'btn', onclick: () => ctx.go('#/quiz') }, '🎟️ 0 · ', t('gameToTest'));
+    }
 
     function intro() {
       cleanup();
+      SB.warmAudio(); // звук готовим заранее, чтобы первое касание фигуры не тормозило
       const g = info(ctx.me);
       const d = load();
       const resume = g.hasRound ? d.cur : null;
-      const canPlay = !!resume || g.unlimited || g.left > 0;
-      const ratingBox = h('div', { class: 'g-rating' },
-        ctx.rating && h('p', { class: 'muted small center' }, t('gameRatingLoading')));
+      const ratingBox = h('div', { class: 'g-rating' });
       root.replaceChildren(h('div', { class: 'stack g-intro' + (mode.ops ? ' ops' : '') },
-        h('div', { class: 'row g-head' },
-          h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => ctx.go('#/map') }, icon('back')),
-          h('span', { class: 'g-logo-sm', html: mode.ops ? LOGO_OPS : LOGO }),
-          h('div', null, h('h2', { class: 'step-title' }, t('gameName')), modeTag())),
-        h('div', { class: 'g-stats' },
-          h('div', null, h('small', null, '🏆 ' + t('gameBest')), h('b', null, fmt(g.best))),
-          h('div', null, h('small', null, '🎟️ ' + t('gameRounds')), h('b', null, roundsLine(g))),
-          h('div', null, h('small', null, '🔄 ' + t('gameSpins')), h('b', null, String(g.spins)))),
+        head(),
+        stats(g),
         ratingBox,
-        !canPlay && noRounds(),
-        h('div', { class: 'card stack-sm g-rules' },
-          h('p', null, mode.ops ? t('gameHowOps') : t('gameHow')),
-          h('p', { class: 'muted small' }, t('gameEarnRule')),
-          g.unlimited && h('p', { class: 'muted small' }, t('gameUnlimited'))),
-        h('button', { class: 'btn ghost', onclick: () => ctx.go('#/map') }, t('gameToMap')),
-        canPlay && h('div', { class: 'sticky-cta' },
-          h('button', { class: 'btn gold', onclick: () => (resume ? play(resume) : start()) }, resume ? t('gameContinue') : t('gamePlay')))));
+        h('div', { class: 'sticky-cta' }, mainButton(g, resume))));
       if (!ctx.rating) return;
       (async () => {
         // Рекорд, набранный без связи, сначала догоняет сервер — тогда и место будет верным
         const local = Number(load().best) || 0;
         if (local > (Number(ctx.me.gameBest) || 0)) { await sendScore(local, false); boardCache = null; }
         const b = await fetchBoard();
-        if (!ratingBox.isConnected) return;
-        if (!b || !b.rating) { ratingBox.replaceChildren(); return; }
+        if (!ratingBox.isConnected || !b || !b.rating) return;
         ratingBox.replaceChildren(ratingView(b, Math.max(local, b.best || 0)));
       })();
     }
 
+    // Экран после проигрыша: результат и рекорд крупно, сразу рейтинг с новым местом
+    // r: { score, best, isBest, prevPlace, submit }
+    function result(r) {
+      cleanup();
+      const g = info(ctx.me);
+      const placeEl = h('span', { class: 'g-res-place' });
+      const ratingBox = h('div', { class: 'g-rating' });
+      const tip = ctx.tips && ctx.tips.length ? pick(ctx.tips) : null;
+      root.replaceChildren(h('div', { class: 'stack g-intro g-result' + (mode.ops ? ' ops' : '') },
+        head(),
+        h('div', { class: 'g-res' + (r.isBest ? ' best' : '') },
+          r.isBest && h('div', { class: 'g-res-badge' }, '🏆 ', t('gameNewBest')),
+          h('b', { class: 'g-res-score', 'aria-label': `${t('gameYourScore')}: ${fmt(r.score)}` }, fmt(r.score)),
+          h('div', { class: 'g-res-sub' },
+            h('span', { 'aria-label': `${t('gameBest')}: ${fmt(r.best)}` }, '🏆 ', fmt(r.best)),
+            h('span', null, '🎟️ ', roundsLine(g)),
+            placeEl)),
+        ratingBox,
+        tip && h('p', { class: 'g-tipline' }, '💡 ', tip.text),
+        h('div', { class: 'sticky-cta' }, mainButton(g, null, true))));
+      if (!ctx.rating) return;
+      (async () => {
+        // Сначала результат доходит до сервера (не дольше 2,5 с), затем — свежий рейтинг
+        await Promise.race([r.submit, new Promise((res) => setTimeout(res, 2500))]);
+        boardCache = null;
+        const b = await fetchBoard();
+        if (!ratingBox.isConnected || !b || !b.rating) return;
+        const myBest = Math.max(r.best, b.best || 0);
+        const place = b.school.place;
+        if (place) placeEl.replaceChildren(h('span', null, '🏅 ', String(place), deltaBadge(place, r.prevPlace)));
+        ratingBox.replaceChildren(ratingView(b, myBest, r.prevPlace));
+      })();
+    }
+    // «▲ +3» — на сколько мест поднялся ученик в своей школе; «NEW» — первый раз в рейтинге
+    function deltaBadge(place, prev) {
+      if (!place || prev === undefined) return null;
+      if (!prev) return h('span', { class: 'g-up new' }, 'NEW');
+      return prev > place ? h('span', { class: 'g-up' }, `▲ +${prev - place}`) : null;
+    }
+
     // Рейтинг: вкладки «Моя школа / колледж / вуз» и «Жамбылская область».
     // Строка ученика подсвечена и видна, даже если он далеко внизу.
-    function ratingView(b, myBest) {
+    function ratingView(b, myBest, prevSchoolPlace) {
       const KIND = { school: 'gameTabSchool', college: 'gameTabCollege', university: 'gameTabUniversity', other: 'gameTabOther' };
       let tab = 'school';
       const list = h('div', { class: 'g-list', role: 'tabpanel' });
       const tabs = [['school', t(KIND[b.school.kind] || KIND.school)], ['region', t('gameTabRegion')]].map(([id, label]) =>
         h('button', { class: 'g-seg-btn', type: 'button', role: 'tab', 'aria-selected': String(id === tab), onclick: () => { tab = id; fill(); } }, label));
 
-      function row(n, who, sub, score, cls = '') {
+      function row(n, who, sub, score, cls = '', extra = null) {
         return h('div', { class: 'g-row' + cls },
           h('span', { class: 'n' }, String(n)),
-          h('span', { class: 'who' }, who, sub && h('small', null, sub)),
+          h('span', { class: 'who' }, who, extra, sub && h('small', null, sub)),
           h('b', null, fmt(score)));
       }
 
@@ -459,44 +533,34 @@
           ? (myBest === (b.best || 0) && data.place ? data.place : others.filter((r) => r.score > myBest).length + 1)
           : null;
         const total = Math.max(data.total || 0, place || 0);
-        const meRow = () => row(place, t('gameYou'), region ? b.school.name : null, myBest, ' you');
+        const up = !region && prevSchoolPlace !== undefined ? deltaBadge(place, prevSchoolPlace) : null;
+        const meRow = () => row(place, t('gameYou'), region ? b.school.name : null, myBest, ' you', up);
         const out = [];
         out.push(h('div', { class: 'g-list-head' },
           h('b', null, region ? t('gameRegionTop', { n: others.length + (place && place <= others.length + 1 ? 1 : 0) }) : b.school.name),
-          h('span', null, place ? t('gameMyPlace', { n: place, m: total }) : t('gameNoPlace'))));
+          h('span', { 'aria-label': place ? t('gameMyPlaceAria', { n: place, m: total }) : '' }, place ? `🏅 ${place} / ${total}` : '🏅 —')));
         let shownMe = false;
         others.forEach((r, i) => {
           if (place && !shownMe && i + 1 >= place) { out.push(meRow()); shownMe = true; }
           const n = i + 1 + (shownMe ? 1 : 0);
           out.push(region
             ? row(n, r.name, r.school, r.score)
-            : row(n, `${r.name}, ${r.grade}`, r.classmate ? t('gameYourClass') : null, r.score, r.classmate ? ' mate' : ''));
+            : row(n, `${r.name}, ${r.grade}`, null, r.score, r.classmate ? ' mate' : ''));
         });
         if (place && !shownMe) {
           if (place > others.length + 1) out.push(h('div', { class: 'g-gap', 'aria-hidden': 'true' }, '⋯'));
           out.push(meRow());
         }
-        if (!others.length && !place) out.push(h('p', { class: 'muted small' }, region ? t('gameNoRegion') : t('gameNoRivals')));
+        if (!others.length && !place) out.push(h('p', { class: 'muted small center' }, '—'));
         list.replaceChildren(...out);
       }
       fill();
       return h('div', { class: 'stack-sm' },
-        h('div', { class: 'g-rating-head' },
-          h('h3', null, t('gameRatingTitle')),
-          h('p', { class: 'muted small' }, t(b.level === 'junior' ? 'gameLevelJr' : 'gameLevelSr'))),
         h('div', { class: 'g-seg', role: 'tablist' }, tabs),
-        list,
-        h('p', { class: 'muted small' }, t('gameRatingHint')));
-    }
-
-    function noRounds() {
-      const nm = ctx.nextMission;
-      return h('div', { class: 'card stack-sm center' },
-        h('b', null, '🎟️ ' + t('gameNoRounds')),
-        h('p', { class: 'muted' }, nm ? t('gameNoRoundsText', { n: nm.n, title: nm.title }) : t('gameNoRoundsTest')),
-        nm
-          ? h('button', { class: 'btn', onclick: () => ctx.go(`#/mission/${nm.id}`) }, t('gameToMission', { n: nm.n }))
-          : h('button', { class: 'btn', onclick: () => ctx.go('#/quiz') }, t('gameToTest')));
+        h('div', { class: 'g-rating-meta' },
+          h('span', { class: 'g-chip' }, '🏅 ', t(levelKey())),
+          h('button', { class: 'g-info', type: 'button', 'aria-label': t('gameInfo'), onclick: showPrivacy }, 'i')),
+        list);
     }
 
     function start() {
@@ -537,22 +601,23 @@
       const slots = [0, 1, 2].map((i) => h('div', { class: 'g-slot', 'data-i': String(i) }, h('canvas')));
       const trayEl = h('div', { class: 'g-tray' }, slots);
       const refreshBtn = h('button', { class: 'btn small ghost g-refresh', type: 'button', onclick: doRefresh });
+      // Подсказка «как играть» — один раз, без слов: палец тянет фигуру из лотка на поле
       const hintSeen = store.get('gameHint') === '1';
-      const hand = hintSeen ? null : h('div', { class: 'g-hand', 'aria-hidden': 'true' }, '👆');
+      const hand = hintSeen ? null : h('div', { class: 'g-hint', 'aria-hidden': 'true' }, h('span', { class: 'g-hint-piece' }), h('span', { class: 'g-hint-hand' }, '👆'));
       const screen = h('div', { class: 'g-screen' + (mode.ops ? ' ops' : ' jr') },
         h('div', { class: 'g-hud' },
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('gameExit'), onclick: exit }, icon('x')),
-          h('div', { class: 'g-score' }, h('small', null, t('gameScore')), scoreEl),
+          h('div', { class: 'g-score', 'aria-label': t('gameScore') }, scoreEl),
           comboEl,
-          h('div', { class: 'g-best' }, h('small', null, '🏆 ' + t('gameBest')), bestEl),
+          h('div', { class: 'g-best', 'aria-label': t('gameBest') }, '🏆 ', bestEl),
           soundBtn),
         raceEl,
         boardWrap,
-        h('div', { class: 'g-tray-wrap' }, trayEl, hand),
+        h('div', { class: 'g-tray-wrap' }, trayEl),
         h('div', { class: 'g-actions' },
           refreshBtn,
-          h('span', { class: 'g-rounds' }, '🎟️ ', roundsLine(info(ctx.me)))),
-        !hintSeen && h('p', { class: 'g-tip muted small center' }, mode.ops ? t('gameHowOps') : t('gameHow')));
+          h('span', { class: 'g-rounds', 'aria-label': t('gameRounds') }, '🎟️ ', roundsLine(info(ctx.me)))),
+        hand);
       root.replaceChildren(screen);
       updateSoundBtn();
       updateRefresh();
@@ -574,6 +639,7 @@
             worldBeat: false,
             rivals,
             schoolOthers: Math.max(rivals.length, (b.school.total || 0) - (b.best ? 1 : 0)),
+            prevPlace: b.school.place || null,
           };
           updateRace();
         });
@@ -646,7 +712,19 @@
         sprites = {};
         bg = drawBackground();
         drawTray();
+        placeHint();
         kick();
+      }
+      function placeHint() {
+        if (!hand || !hand.isConnected) return;
+        const base = screen.getBoundingClientRect();
+        const from = (slots.find((x) => !x.classList.contains('empty')) || slots[0]).getBoundingClientRect();
+        const to = boardWrap.getBoundingClientRect();
+        hand.style.setProperty('--x0', `${from.left + from.width / 2 - base.left}px`);
+        hand.style.setProperty('--y0', `${from.top + from.height / 2 - base.top}px`);
+        hand.style.setProperty('--x1', `${to.left + to.width / 2 - base.left}px`);
+        hand.style.setProperty('--y1', `${to.top + to.height * 0.55 - base.top}px`);
+        hand.style.setProperty('--cell', `${pitch}px`);
       }
 
       function drawBackground() {
@@ -820,6 +898,8 @@
           for (const [r, c] of cells) g.drawImage(sprite(p.k, size), c * tp + (tp - size) / 2, r * tp + (tp - size) / 2);
           slot.classList.toggle('dim', !canPlace(grid, cells));
           slot.setAttribute('aria-label', t('gamePieceAria', { n: cells.length }));
+          // «Поднятая» фигура готовится заранее — при касании ничего не рисуем
+          if (!(floats[i] && floats[i].p === p && floats[i].w === cols * pitch)) floats[i] = buildFloat(p);
         });
       }
 
@@ -833,7 +913,7 @@
         comboEl.textContent = combo >= 2 ? t('gameCombo', { n: combo }) : '';
       }
       function updateRefresh() {
-        refreshBtn.replaceChildren('🔄 ', t('gameRefresh'), h('span', { class: 'g-count' }, String(refresh)));
+        refreshBtn.replaceChildren('🔄', h('span', { class: 'g-count' }, String(refresh)));
         // Без запаса кнопка не выключается, а подсказывает, где взять «Новые фигуры»
         refreshBtn.classList.toggle('none', refresh <= 0);
         refreshBtn.setAttribute('aria-label', t('gameRefreshAria', { n: refresh }));
@@ -861,13 +941,17 @@
         save(d);
       }
 
-      // ─ Перетаскивание фигуры пальцем или мышью
+      // ─ Перетаскивание фигуры пальцем или мышью.
+      // Раньше «тяжесть» давали: запуск звука браузера прямо при первом касании фигуры
+      // (до 0,2–0,5 с стоп-кадра на телефоне), сдвиг фигуры только в следующем кадре,
+      // плавный рост фигуры из размера лотка, замер поля после вставки фигуры в страницу
+      // и строгая привязка к одной клетке. Теперь: картинка фигуры готова заранее (floats),
+      // размеры замеряются один раз до любых изменений страницы, фигура двигается прямо
+      // в обработчике касания, тень на поле перерисовывается только при смене клетки,
+      // привязка — к ближайшей подходящей клетке в радиусе ~1 клетки.
       let drag = null;
-      let moveRaf = 0;
-      function onDown(e, i) {
-        if (drag || over || !tray[i] || (e.button !== undefined && e.button > 0)) return;
-        e.preventDefault();
-        const p = tray[i];
+      let floats = []; // готовые «поднятые» фигуры для каждого места лотка (размер клетки поля)
+      function buildFloat(p) {
         const cells = cellsOf(p);
         const { rows, cols } = sizeOf(cells);
         const w = cols * pitch;
@@ -881,52 +965,69 @@
         const size = cs();
         for (const [r, c] of cells) g.drawImage(sprite(p.k, size), (c * pitch + gap / 2) * dpr, (r * pitch + gap / 2) * dpr);
         const inner = h('div', { class: 'g-float-in' }, cv);
-        const el = h('div', { class: 'g-float', 'aria-hidden': 'true' }, inner);
-        const startScale = trayPitch / pitch;
-        inner.style.transform = `scale(${startScale})`;
-        document.body.append(el);
-        // На телефоне фигура поднимается над пальцем, чтобы её было видно
-        const lift = e.pointerType === 'mouse' ? hh / 2 : hh + pitch * 0.9;
-        drag = { i, p, cells, el, inner, w, h: hh, lift, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, pid: e.pointerId, rect: board.getBoundingClientRect(), target: null, moved: false, startScale };
+        return { el: h('div', { class: 'g-float', 'aria-hidden': 'true' }, inner), inner, w, h: hh, cells, p };
+      }
+      function onDown(e, i) {
+        if (drag || over || !tray[i] || (e.button !== undefined && e.button > 0)) return;
+        e.preventDefault();
+        if (hand) hand.classList.add('off');
+        const f = floats[i] && floats[i].p === tray[i] ? floats[i] : (floats[i] = buildFloat(tray[i]));
+        const rect = board.getBoundingClientRect(); // до изменений страницы — без пересчёта раскладки
+        // Фигура поднимается над пальцем (палец её не закрывает); мышью — держим за середину
+        const lift = e.pointerType === 'mouse' ? f.h / 2 : f.h + pitch * 0.8;
+        drag = { i, p: tray[i], cells: f.cells, el: f.el, inner: f.inner, w: f.w, h: f.h, lift, x0: e.clientX, y0: e.clientY, pid: e.pointerId, rect, target: null, moved: false };
+        f.el.style.transition = 'none';
+        f.inner.style.transition = 'none';
+        f.inner.style.transform = '';
+        position(e.clientX, e.clientY);
+        document.body.append(f.el);
         slots[i].classList.add('lifted');
         try { slots[i].setPointerCapture(e.pointerId); } catch { /* не страшно */ }
-        moveFloat();
-        requestAnimationFrame(() => { if (drag && drag.inner === inner) inner.style.transform = 'scale(1.04)'; });
         sfx.pick();
       }
       function onMove(e) {
         if (!drag || e.pointerId !== drag.pid) return;
-        drag.x = e.clientX;
-        drag.y = e.clientY;
-        if (!drag.moved && Math.abs(drag.x - drag.x0) + Math.abs(drag.y - drag.y0) > 8) drag.moved = true;
-        if (!moveRaf) moveRaf = requestAnimationFrame(moveFloat);
+        if (!drag.moved && Math.abs(e.clientX - drag.x0) + Math.abs(e.clientY - drag.y0) > 6) drag.moved = true;
+        position(e.clientX, e.clientY); // сразу, без ожидания следующего кадра
       }
-      function moveFloat() {
-        moveRaf = 0;
-        if (!drag) return;
-        const left = drag.x - drag.w / 2;
-        const top = drag.y - drag.lift;
+      // Щедрая привязка: ближайшая к фигуре позиция в радиусе ~1 клетки, куда она помещается
+      function snap(left, top) {
+        const fx = (left - drag.rect.left - P) / pitch;
+        const fy = (top - drag.rect.top - P) / pitch;
+        const rx = Math.round(fx);
+        const ry = Math.round(fy);
+        let best = null;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const c0 = rx + dx;
+            const r0 = ry + dy;
+            const dist = (c0 - fx) ** 2 + (r0 - fy) ** 2;
+            if (dist > 1.1 || (best && dist >= best.dist)) continue;
+            if (fits(grid, drag.cells, r0, c0)) best = { r0, c0, dist };
+          }
+        }
+        return best;
+      }
+      function position(x, y) {
+        const left = x - drag.w / 2;
+        const top = y - drag.lift;
         drag.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
-        const c0 = Math.round((left - drag.rect.left - P) / pitch);
-        const r0 = Math.round((top - drag.rect.top - P) / pitch);
-        const ok = fits(grid, drag.cells, r0, c0);
-        const same = ok ? drag.target && drag.target.r0 === r0 && drag.target.c0 === c0 : !drag.target;
+        const tgt = snap(left, top);
+        const same = tgt ? drag.target && drag.target.r0 === tgt.r0 && drag.target.c0 === tgt.c0 : !drag.target;
         if (same) return;
-        drag.target = ok ? { r0, c0 } : null;
-        if (ok) {
+        drag.target = tgt;
+        if (tgt) {
           const test = grid.slice();
-          for (const [r, c] of drag.cells) test[(r0 + r) * N + c0 + c] = 1;
-          ghost = { cells: drag.cells, r0, c0, k: drag.p.k, ...fullLines(test) };
+          for (const [r, c] of drag.cells) test[(tgt.r0 + r) * N + tgt.c0 + c] = 1;
+          ghost = { cells: drag.cells, r0: tgt.r0, c0: tgt.c0, k: drag.p.k, ...fullLines(test) };
         } else {
           ghost = null;
         }
-        kick();
+        kick(); // тень на поле — в ближайшем кадре и только при смене клетки
       }
       function onUp(e) {
         if (!drag || e.pointerId !== drag.pid) return;
-        if (e.type === 'pointerup') { drag.x = e.clientX; drag.y = e.clientY; }
-        if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0; }
-        moveFloat();
+        if (e.type === 'pointerup') position(e.clientX, e.clientY);
         const d = drag;
         drag = null;
         ghost = null;
@@ -935,12 +1036,17 @@
           slots[d.i].classList.remove('lifted');
           placePiece(d.i, d.target);
         } else {
-          // фигура возвращается на место
+          // фигура плавно возвращается на место
           const sr = slots[d.i].getBoundingClientRect();
-          d.el.style.transition = 'transform 0.18s ease-out';
+          d.el.style.transition = 'transform 0.16s ease-out';
+          d.inner.style.transition = 'transform 0.16s ease-out';
           d.el.style.transform = `translate3d(${sr.left + sr.width / 2 - d.w / 2}px, ${sr.top + sr.height / 2 - d.h / 2}px, 0)`;
-          d.inner.style.transform = `scale(${d.startScale})`;
-          setTimeout(() => { d.el.remove(); slots[d.i].classList.remove('lifted'); }, reducedMotion ? 0 : 190);
+          d.inner.style.transform = `scale(${trayPitch / pitch})`;
+          setTimeout(() => {
+            if (drag && drag.el === d.el) return; // ту же фигуру уже снова взяли
+            d.el.remove();
+            slots[d.i].classList.remove('lifted');
+          }, reducedMotion ? 0 : 170);
           if (d.moved) sfx.back();
         }
         kick();
@@ -1000,10 +1106,8 @@
         score += gained;
         fxText('g-pop', `+${fmt(gained)}`, cx, cy);
         if (tray.every((x) => !x)) tray = newTray(grid, mode);
-        if (hand) {
+        if (hand && hand.isConnected) {
           hand.remove();
-          const tip = screen.querySelector('.g-tip');
-          if (tip) tip.remove();
           store.set('gameHint', '1');
         }
         updateHud();
@@ -1040,42 +1144,21 @@
         over = true;
         persist();
         sent = score;
-        sendScore(score, true);
-        setTimeout(finish, reducedMotion ? 100 : 550);
+        const submit = sendScore(score, true);
+        setTimeout(() => finish(submit), reducedMotion ? 100 : 550);
       }
 
-      async function finish() {
+      function finish(submit) {
         if (!screen.isConnected) return;
         const isBest = score > best0 && score > 0;
         if (isBest) { sfx.best(); confetti(); } else sfx.over();
-        const g = info(ctx.me);
-        const canAgain = g.unlimited || g.left > 0;
-        const tip = ctx.tips && ctx.tips.length ? pick(ctx.tips) : null;
-        const nm = ctx.nextMission;
-        const myBest = Math.max(best0, score, race ? race.startBest : 0);
-        const place = race && race.schoolOthers ? 1 + race.rivals.filter((r) => r.score > myBest).length : 0;
-        const actions = canAgain
-          ? [{ label: t('gameAgain'), class: 'gold', value: 'again' }]
-          : [nm ? { label: t('gameToMission', { n: nm.n }), class: 'gold', value: 'mission' } : { label: t('gameToTest'), class: 'gold', value: 'quiz' }];
-        actions.push({ label: t('gameToMap'), class: 'ghost', value: 'map' });
-        const v = await sheet({
-          tone: isBest ? 'ok' : '',
-          emoji: isBest ? '🏆' : '🔒',
-          title: isBest ? t('gameNewBest') : t('gameOver'),
-          content: h('div', { class: 'stack-sm' },
-            h('div', { class: 'g-final' }, h('small', null, t('gameYourScore')), h('b', null, fmt(score))),
-            h('p', { class: 'center muted' }, `🏆 ${t('gameBest')}: ${fmt(Math.max(best0, score))} · 🎟️ ${roundsLine(g)}`),
-            place > 0 && h('p', { class: 'center' }, h('b', null, t('gamePlace', { n: place, m: race.schoolOthers + 1 }))),
-            race && race.world && h('p', { class: 'center muted small' }, `${t('gameTopTitle')}: ${fmt(Math.max(race.world.score, score))}`),
-            !canAgain && h('p', { class: 'center' }, nm ? t('gameNoRoundsText', { n: nm.n, title: nm.title }) : t('gameNoRoundsTest')),
-            tip && h('div', { class: 'rule blue' }, h('b', null, t('gameTip')), ' ', tip.text)),
-          actions,
+        result({
+          score,
+          best: Math.max(best0, score, race ? race.startBest : 0),
+          isBest,
+          prevPlace: race ? race.prevPlace : undefined, // undefined — рейтинг в начале раунда не загрузился
+          submit,
         });
-        if (!screen.isConnected) return;
-        if (v === 'again') start();
-        else if (v === 'mission') ctx.go(`#/mission/${nm.id}`);
-        else if (v === 'quiz') ctx.go('#/quiz');
-        else ctx.go('#/map');
       }
 
       function exit() {
@@ -1096,7 +1179,6 @@
         window.removeEventListener('pointercancel', onUp);
         window.removeEventListener('resize', onResize);
         if (raf) cancelAnimationFrame(raf);
-        if (moveRaf) cancelAnimationFrame(moveRaf);
         if (drag) drag.el.remove();
         drag = null;
         // Ушли посреди раунда с новым рекордом — отправляем его (раунд продолжится позже)

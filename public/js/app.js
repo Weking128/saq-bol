@@ -111,12 +111,23 @@
     go('#/');
   }
 
+  // Подвал: контакты из настроек — компактно (иконка + номер, нажатием — звонок),
+  // полная строка — во всплывающей подсказке и для экранных дикторов
+  function contactChip(line) {
+    const nums = line.match(/\+?\d[\d\s()-]*\d/g);
+    if (!nums) return h('span', { class: 'sos-chip' }, line);
+    const num = nums[nums.length - 1].trim();
+    const tel = num.replace(/[^\d+]/g, '');
+    const ico = tel.length <= 3 ? '🚨' : tel.startsWith('+') || tel.length > 6 ? '📱' : '☎️';
+    const org = (line.match(/АФМ|ҚМА/) || [])[0];
+    return h('a', { class: 'sos-chip', href: `tel:${tel}`, title: line, 'aria-label': line }, `${ico} ${org ? org + ' ' : ''}${num}`);
+  }
   function renderFooter() {
     const c = state.config;
     const lines = String(c.contacts || '').split('\n').map((s) => s.trim()).filter(Boolean);
     document.getElementById('footer').replaceChildren(
-      h('div', { class: 'hot' }, h('strong', null, t('sos')), lines.map((l) => h('span', null, l))),
-      h('div', null, c.orgName),
+      h('div', { class: 'hot' }, h('strong', null, t('sos')), lines.map(contactChip)),
+      h('div', { class: 'org' }, c.orgName),
       h('div', null, h('a', { href: '/verify', style: { color: 'inherit' } }, t('verifyLink'))));
   }
 
@@ -126,27 +137,30 @@
     const c = state.config;
     const me = state.me;
     const missions = me ? missionsFor() : SB.MISSIONS;
+    // Главный экран — почти без слов: короткий слоган, цифры, миссии значками; подробности — по «?»
+    const about = () => sheet({ emoji: '🛡️', title: t('aboutTitle'), text: t('about'), actions: [{ label: 'OK' }], dismissible: true });
     app.replaceChildren(h('div', { class: 'stack' },
       h('section', { class: 'hero' },
+        h('button', { class: 'hero-q', type: 'button', 'aria-label': t('aboutTitle'), onclick: about }, '?'),
         mascot(),
         h('h1', null, 'Сақ бол!'),
         h('p', { class: 'tagline' }, t('tagline')),
         h('div', { class: 'features' },
-          h('div', null, h('b', null, String(missions.length)), t('featMissions')),
-          h('div', null, h('b', null, String(c.quizSize)), t('featQuestions')),
+          h('div', null, h('b', null, `🗺️ ${missions.length}`), t('featMissions')),
+          h('div', null, h('b', null, `📝 ${c.quizSize}`), t('featQuestions')),
           h('div', null, h('b', null, '🎓'), t('featCert'))),
         h('p', { class: 'org' }, c.orgName)),
       me
         ? h('div', { class: 'card stack-sm' },
-          h('p', { class: 'muted small' }, t('deviceHasParticipant')),
-          h('p', null, h('b', null, me.fullName), h('br'), h('span', { class: 'muted small' }, `${me.gradeLabel} · ${me.institution}`)),
-          h('button', { class: 'btn', onclick: () => go('#/map') }, t('continueAs', { name: me.firstName })),
-          h('button', { class: 'btn ghost', onclick: logout }, t('otherParticipant')))
+          h('div', { class: 'row' },
+            h('div', { class: 'avatar sm', 'aria-hidden': 'true' }, (me.firstName[0] || '') + (me.lastName[0] || '')),
+            h('div', null, h('b', null, me.fullName), h('div', { class: 'muted small' }, me.gradeLabel))),
+          h('button', { class: 'btn gold', onclick: () => go('#/map') }, t('continueAs')),
+          h('button', { class: 'btn ghost small', onclick: logout }, t('otherParticipant')))
         : h('button', { class: 'btn gold', onclick: () => go('#/register') }, t('startQuest')),
-      h('h2', { style: { fontSize: '20px', marginTop: '22px' } }, t('whatAwaits')),
-      h('div', { class: 'topics' }, missions.map((m, i) =>
-        h('div', { class: 'topic' }, h('span', { class: 'emo' }, m.emoji), h('b', null, `${i + 1}. ${m.title}`), m.desc)),
-        h('div', { class: 'topic' }, h('span', { class: 'emo' }, '🎓'), h('b', null, t('finalTest')), t('finalTestDesc', { n: c.quizSize })))));
+      h('div', { class: 'topics compact' }, missions.map((m) =>
+        h('div', { class: 'topic' }, h('span', { class: 'emo' }, m.emoji), h('b', null, m.title))),
+        h('div', { class: 'topic' }, h('span', { class: 'emo' }, '🎓'), h('b', null, t('finalTest'))))));
   }
 
   // ─── Регистрация ──────────────────────────────────────────────────────
@@ -214,8 +228,7 @@
 
       app.replaceChildren(h('div', { class: 'stack' },
         h('div', { class: 'steps-dots' }, h('i', { class: 'on' }), h('i')),
-        h('div', null, h('div', { class: 'step-kicker' }, t('step', { i: 1, n: 2 })), h('h2', { class: 'step-title' }, t('whereStudy'))),
-        h('p', { class: 'muted' }, t('chooseDistrict')),
+        h('h2', { class: 'step-title' }, t('whereStudy')),
         search, results, dlist));
       fill();
     }
@@ -238,7 +251,7 @@
       const otherBox = h('div', { class: 'card stack-sm', hidden: form.inst !== 'other' },
         h('label', { class: 'field' }, h('span', null, t('otherInstName')),
           h('input', { class: 'input', value: form.other, maxlength: '150', placeholder: t('otherInstPlaceholder'), oninput: (e) => { form.other = e.target.value; validate(); } })),
-        h('div', { class: 'field' }, h('span', null, t('youStudyIn')),
+        h('div', { class: 'field' },
           h('div', { class: 'btn-row' },
             ['class', 'course'].map((k) => h('button', {
               class: 'choice-btn', style: { flex: '1', fontSize: '15px' }, 'aria-pressed': String(form.otherKind === k),
@@ -270,7 +283,7 @@
         h('div', { class: 'steps-dots' }, h('i', { class: 'on' }), h('i')),
         h('div', { class: 'row' },
           h('button', { class: 'icon-btn', 'aria-label': t('otherDistrict'), title: t('otherDistrict'), onclick: stepDistrict }, icon('back')),
-          h('div', null, h('div', { class: 'step-kicker' }, t('step', { i: 1, n: 2 })), h('h2', { class: 'step-title' }, districtName(form.district)))),
+          h('h2', { class: 'step-title' }, districtName(form.district))),
         search, tabs, list, otherBox,
         h('div', { class: 'sticky-cta' }, next)));
       fill();
@@ -357,7 +370,7 @@
         h('div', { class: 'steps-dots' }, h('i', { class: 'on' }), h('i', { class: 'on' })),
         h('div', { class: 'row' },
           h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: stepInstitution }, icon('back')),
-          h('div', null, h('div', { class: 'step-kicker' }, t('step', { i: 2, n: 2 })), h('h2', { class: 'step-title' }, t('whatName')))),
+          h('h2', { class: 'step-title' }, t('whatName'))),
         h('p', { class: 'muted small' }, `${form.inst === 'other' ? form.other : form.inst.name} · ${districtName(form.district)}`),
         h('div', { class: 'card stack' },
           input('lastName', { ac: 'family-name' }),
@@ -367,9 +380,13 @@
           h('div', { class: 'field' }, h('span', null, kind === 'class' ? t('grade') : t('course')), gradeGrid),
           h('div', { class: 'field' }, h('span', null, kind === 'class' ? t('letter') : t('group'), h('em', null, t('ifAny'))),
             letterGrid && h('div', { style: { marginBottom: '8px' } }, letterGrid), letterInput)),
-        h('label', { class: 'check' },
-          h('input', { type: 'checkbox', checked: form.consent, onchange: (e) => { form.consent = e.target.checked; } }),
-          h('span', null, t('consent'))),
+        h('div', { class: 'consent' },
+          h('label', { class: 'check' },
+            h('input', { type: 'checkbox', checked: form.consent, onchange: (e) => { form.consent = e.target.checked; } }),
+            h('span', null, t('consent'))),
+          h('details', { class: 'consent-more' },
+            h('summary', null, t('consentMore')),
+            h('p', null, t('consentFull', { org: state.config.orgName })))),
         h('p', { class: 'muted small' }, t('nameOnCert')),
         err,
         h('div', { class: 'sticky-cta' }, submit)));
@@ -654,9 +671,9 @@
         h('b', null, t('rememberMain')),
         h('ul', { class: 'lesson', style: { margin: 0, paddingLeft: '20px' } }, mission.recap.map((r) => h('li', null, r)))),
       // Не 3 звезды и «Новые фигуры» за эту миссию ещё не получены — зовём пройти ещё раз
-      stars < 3 && !had3 && h('div', { class: 'rule blue stack-sm' },
-        h('div', null, t('gameSpinFinish')),
-        h('button', { class: 'btn small ghost', onclick: () => go(`#/mission/${id}`) }, t('replayBtn'))),
+      stars < 3 && !had3 && h('div', { class: 'rule blue row spin-hint' },
+        h('b', { style: { flex: '1' } }, t('gameSpinFinish')),
+        h('button', { class: 'btn small ghost', style: { width: 'auto' }, onclick: () => go(`#/mission/${id}`) }, t('replayBtn'))),
       next
         ? h('button', { class: 'btn gold', onclick: () => go('#/map') }, t('toMapNext'))
         : h('button', { class: 'btn gold', onclick: () => go('#/memo') }, t('toFinalTest')),
@@ -672,12 +689,11 @@
       h('div', { class: 'row' },
         h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => go('#/map') }, icon('back')),
         h('h2', { class: 'step-title' }, t('memoTitle'))),
-      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, isJunior() ? t('memoSayJr') : t('memoSay'))),
       isJunior() && SB.listenBtn(() => [t('memoTitle'), memoFor().map((m) => m.text)]),
-      h('div', { class: 'stack-sm memo-list' }, memoFor().map((m, i) =>
+      h('div', { class: 'stack-sm memo-list' }, memoFor().map((m) =>
         h('div', { class: 'card row', style: { alignItems: 'flex-start', padding: '14px' } },
           h('span', { style: { fontSize: '26px', lineHeight: '1' }, 'aria-hidden': 'true' }, m.emoji),
-          h('span', null, h('b', null, `${i + 1}. `), m.text)))),
+          h('span', null, m.text)))),
       canTest
         ? h('button', { class: 'btn gold', onclick: () => go('#/quiz') }, t('readyForTest'))
         : h('button', { class: 'btn ghost', onclick: () => go('#/map') }, t('toMap'))));
@@ -690,7 +706,11 @@
     state.quiz = null;
     updateTopbar();
     const c = state.config;
-    const start = h('button', { class: 'btn gold', onclick: begin }, t('startTest').replace('▶ ', ''));
+    const start = h('button', { class: 'btn gold', onclick: begin }, t('startBtn'));
+    const rules = isJunior()
+      ? [t('quizRule1Jr', { n: c.quizSize }), t('quizRule2Jr', { p: c.passScore }), t('quizRule3Jr')]
+      : [t('quizRule1', { n: c.quizSize }), t('quizRule2', { p: c.passScore }), t('quizRule3'), t('quizRule4')];
+    const showRules = () => sheet({ emoji: '📝', title: t('rulesTitle'), content: h('div', { class: 'stack-sm' }, rules.map((r) => h('p', null, r))), actions: [{ label: 'OK' }], dismissible: true });
     async function begin() {
       start.disabled = true;
       start.textContent = t('preparingQuestions');
@@ -701,24 +721,19 @@
       } catch (e) {
         toast(e.message, 'bad');
         start.disabled = false;
-        start.textContent = t('startTest').replace('▶ ', '');
+        start.textContent = t('startBtn');
       }
     }
     app.replaceChildren(h('div', { class: 'stack' },
       h('div', { class: 'row' },
         h('button', { class: 'icon-btn', 'aria-label': t('back'), onclick: () => go('#/map') }, icon('back')),
-        h('h2', { class: 'step-title' }, t('finalTest'))),
-      h('div', { class: 'mascot-say' }, mascot(), h('div', { class: 'bubble' }, isJunior() ? t('quizSayJr') : t('quizSay'))),
-      isJunior()
-        ? h('div', { class: 'card stack-sm' },
-          h('p', null, t('quizRule1Jr', { n: c.quizSize })),
-          h('p', null, t('quizRule2Jr', { p: c.passScore })),
-          h('p', null, t('quizRule3Jr')))
-        : h('div', { class: 'card stack-sm' },
-          h('p', null, t('quizRule1', { n: c.quizSize })),
-          h('p', null, t('quizRule2', { p: c.passScore })),
-          h('p', null, t('quizRule3')),
-          h('p', null, t('quizRule4'))),
+        h('h2', { class: 'step-title', style: { flex: '1' } }, t('finalTest')),
+        h('button', { class: 'q-btn', type: 'button', 'aria-label': t('rulesTitle'), onclick: showRules }, '?')),
+      h('div', { class: 'quiz-chips' },
+        h('span', { 'aria-label': rules[0] }, t('quizChipQ', { n: c.quizSize })),
+        h('span', { 'aria-label': rules[1] }, t('quizChipPass', { p: c.passScore })),
+        h('span', null, '⏱️ ∞'),
+        h('span', null, '🔁')),
       state.me.attemptsCount ? h('p', { class: 'muted small center' }, t('attemptsInfo', { a: state.me.attemptsCount, b: state.me.bestScore ?? 0, n: c.quizSize })) : null,
       start,
       h('button', { class: 'btn ghost', onclick: () => go('#/memo') }, t('repeatMemo'))));
@@ -818,9 +833,7 @@
     app.replaceChildren(h('div', { class: 'stack center' },
       scoreRing(res.score, res.total, res.passed),
       h('h2', { class: 'step-title' }, res.passed ? t('passedTitle') : t('failedTitle')),
-      h('p', { class: 'muted' }, res.passed
-        ? t('passedText', { s: res.score, t: res.total })
-        : t('failedText', { p: res.passScore, d: res.passScore - res.score })),
+      !res.passed && h('p', { class: 'muted' }, t('failedText', { p: res.passScore, d: res.passScore - res.score })),
       res.passed
         ? h('button', { class: 'btn gold', onclick: () => go('#/certificate') }, t('getCert'))
         : h('button', { class: 'btn', onclick: () => go('#/quiz') }, t('retakeTest')),
