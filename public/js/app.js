@@ -8,7 +8,11 @@
   const app = document.getElementById('app');
   const topRight = document.getElementById('top-right');
   // cleanup — что убрать при уходе с экрана (например, обработчики мини-игры)
-  const state = { config: null, me: null, institutions: null, quiz: null, page: '', cleanup: null };
+  // view — номер текущего экрана (растёт при каждом переходе)
+  const state = { config: null, me: null, institutions: null, quiz: null, page: '', cleanup: null, view: 0 };
+  // Ответ сервера, пришедший после ухода ученика на другой экран, не рисует поверх него:
+  // const alive = viewGuard(); … await …; if (!alive()) return;
+  const viewGuard = () => { const v = state.view; return () => v === state.view; };
 
   const RANK_XP = [0, 100, 200, 300, 450];
   const TYPE_TABS = [
@@ -111,22 +115,10 @@
     go('#/');
   }
 
-  // Подвал: контакты из настроек — компактно (иконка + номер, нажатием — звонок),
-  // полная строка — во всплывающей подсказке и для экранных дикторов
-  function contactChip(line) {
-    const nums = line.match(/\+?\d[\d\s()-]*\d/g);
-    if (!nums) return h('span', { class: 'sos-chip' }, line);
-    const num = nums[nums.length - 1].trim();
-    const tel = num.replace(/[^\d+]/g, '');
-    const ico = tel.length <= 3 ? '🚨' : tel.startsWith('+') || tel.length > 6 ? '📱' : '☎️';
-    const org = (line.match(/АФМ|ҚМА/) || [])[0];
-    return h('a', { class: 'sos-chip', href: `tel:${tel}`, title: line, 'aria-label': line }, `${ico} ${org ? org + ' ' : ''}${num}`);
-  }
+  // Подвал: организатор и проверка сертификата
   function renderFooter() {
     const c = state.config;
-    const lines = String(c.contacts || '').split('\n').map((s) => s.trim()).filter(Boolean);
     document.getElementById('footer').replaceChildren(
-      h('div', { class: 'hot' }, h('strong', null, t('sos')), lines.map(contactChip)),
       h('div', { class: 'org' }, c.orgName),
       h('div', null, h('a', { href: '/verify', style: { color: 'inherit' } }, t('verifyLink'))));
   }
@@ -167,6 +159,7 @@
 
   async function renderRegister() {
     if (!state.institutions) {
+      const alive = viewGuard();
       app.replaceChildren(h('div', { class: 'empty' }, t('loadingInstitutions')));
       try {
         // Сначала заведения с номером (по возрастанию номера), затем остальные по алфавиту
@@ -174,8 +167,9 @@
         state.institutions = (await api(`/api/institutions?lang=${SB.lang}`))
           .sort((a, b) => num(a.name) - num(b.name) || a.name.localeCompare(b.name, SB.lang));
       } catch (e) {
-        return showError(e, renderRegister);
+        return alive() && showError(e, renderRegister);
       }
+      if (!alive()) return;
     }
     const form = { district: null, inst: null, other: '', otherKind: 'class', lastName: '', firstName: '', middleName: '', grade: null, letter: '', consent: false };
     const districts = state.config.districts || [];
@@ -418,8 +412,21 @@
       missionMap(missions),
       h('button', { class: 'btn ghost', onclick: () => go('#/memo') }, t('memoBtn'))));
 
-    // Анимация после пройденной миссии: агент идёт к следующей точке, она «открывается»
     const map = app.querySelector('.jmap');
+    // Бегущий пунктир оперативной карты — таймером, 5 шагов в секунду (см. .ops .trail-dash в app.css)
+    const trail = map.classList.contains('ops') && !SB.reducedMotion && map.querySelector('.jtrail');
+    if (trail) {
+      let offset = 0;
+      const timer = setInterval(() => {
+        if (!trail.isConnected) { clearInterval(timer); return; }
+        if (document.hidden) return;
+        offset = (offset - 3) % 18;
+        trail.style.setProperty('--dash', `${offset}px`);
+      }, 200);
+      state.cleanup = () => clearInterval(timer);
+    }
+
+    // Анимация после пройденной миссии: агент идёт к следующей точке, она «открывается»
     const cur = map.querySelector('.jnode.current');
     const mascotEl = map.querySelector('.jmascot');
     const just = state.justCompleted;
@@ -711,11 +718,14 @@
       ? [t('quizRule1Jr', { n: c.quizSize }), t('quizRule2Jr', { p: c.passScore }), t('quizRule3Jr')]
       : [t('quizRule1', { n: c.quizSize }), t('quizRule2', { p: c.passScore }), t('quizRule3'), t('quizRule4')];
     const showRules = () => sheet({ emoji: '📝', title: t('rulesTitle'), content: h('div', { class: 'stack-sm' }, rules.map((r) => h('p', null, r))), actions: [{ label: 'OK' }], dismissible: true });
+    const alive = viewGuard();
     async function begin() {
       start.disabled = true;
       start.textContent = t('preparingQuestions');
       try {
-        state.quiz = { ...(await api('/api/quiz/start', { method: 'POST' })), answers: [], index: 0 };
+        const quiz = await api('/api/quiz/start', { method: 'POST' });
+        if (!alive()) return;
+        state.quiz = { ...quiz, answers: [], index: 0 };
         updateTopbar();
         renderQuestion();
       } catch (e) {
@@ -745,9 +755,13 @@
     const last = qz.index === qz.questions.length - 1;
     const keys = t('optionKeys');
     const nextBtn = h('button', { class: 'btn' + (last ? ' gold' : ''), disabled: qz.answers[qz.index] === undefined, onclick: next }, last ? t('finishTest') : t('next'));
+    // Пока ответы отправляются, варианты не нажимаются: иначе кнопка «Готово» снова
+    // включалась, тест уходил второй раз и ученик видел ошибку «попытка уже завершена»
+    let sending = false;
     const opts = q.options.map((o, k) => h('button', {
       class: 'option', 'aria-pressed': String(qz.answers[qz.index] === k),
       onclick: () => {
+        if (sending) return;
         qz.answers[qz.index] = k;
         opts.forEach((b, j) => b.setAttribute('aria-pressed', String(j === k)));
         nextBtn.disabled = false;
@@ -761,15 +775,21 @@
         window.scrollTo(0, 0);
         return;
       }
+      if (sending) return;
+      sending = true;
       nextBtn.disabled = true;
       nextBtn.textContent = t('checking');
+      const alive = viewGuard();
       try {
         const res = await api('/api/quiz/submit', { method: 'POST', body: { attemptId: qz.attemptId, answers: qz.answers } });
         state.me = res.participant;
+        if (!alive()) return; // результат сохранён, ученик уже на другом экране
         state.quiz = null;
         updateTopbar();
         renderResult(res);
       } catch (e) {
+        sending = false;
+        if (!alive()) return;
         toast(e.message, 'bad');
         nextBtn.disabled = false;
         nextBtn.textContent = t('finishTest');
@@ -794,7 +814,7 @@
       isJunior() && SB.listenBtn(() => [q.q, q.options.map((o, k) => `${keys[k]}. ${o}`)]),
       h('div', { class: 'options' }, opts),
       h('div', { class: 'btn-row' },
-        qz.index > 0 && h('button', { class: 'btn ghost', style: { flex: '0 0 30%' }, 'aria-label': t('back'), onclick: () => { qz.index -= 1; renderQuestion(); } }, '←'),
+        qz.index > 0 && h('button', { class: 'btn ghost', style: { flex: '0 0 30%' }, 'aria-label': t('back'), onclick: () => { if (sending) return; qz.index -= 1; renderQuestion(); } }, '←'),
         nextBtn)));
   }
 
@@ -821,8 +841,10 @@
   }
 
   async function renderResult(res) {
+    const alive = viewGuard();
     if (res.passed) {
       await SB.celebrate({ emoji: '🏆', title: t('testPassedWow'), subtitle: t('rankFinal'), stars: 3, bonus: t('gameBonusFull'), button: t('hooray') });
+      if (!alive()) return;
     }
     const reviewBox = h('div', { hidden: true }, reviewList(res.review));
     const toggle = h('button', {
@@ -847,15 +869,18 @@
 
   async function renderCertificate() {
     if (!state.me.passed) return go('#/map');
+    const alive = viewGuard();
     app.replaceChildren(h('div', { class: 'empty' }, t('preparingCert')));
     let data;
     try {
       data = await api('/api/certificate');
     } catch (e) {
-      return showError(e, renderCertificate);
+      return alive() && showError(e, renderCertificate);
     }
+    if (!alive()) return;
     const canvas = h('canvas', { 'aria-label': `${t('yourCert')}: ${data.fullName}`, role: 'img' });
     await SB.cert.draw(canvas, data);
+    if (!alive()) return;
 
     const busy = async (btn, fn) => {
       const label = btn.textContent;
@@ -893,6 +918,7 @@
 
   function route() {
     const [, page, arg] = (location.hash.replace(/^#/, '') || '/').split('/');
+    state.view += 1;
     if (state.cleanup) { state.cleanup(); state.cleanup = null; }
     SB.stopSpeech();
     state.page = page || '';

@@ -345,6 +345,16 @@
       return data;
     } catch { return null; } // без связи игра работает, просто без соперников
   }
+  // Сервер отмечает начало раунда: по этой отметке он проверяет, что очков не больше,
+  // чем можно набрать за прошедшее время (защита рейтинга, см. /api/game/start в lib/app.js)
+  function markRoundStart() {
+    const tok = store.get('token');
+    if (!tok) return;
+    try {
+      fetch('/api/game/start', { method: 'POST', keepalive: true, headers: { 'X-Participant-Token': tok, 'X-Lang': SB.lang } }).catch(() => {});
+    } catch { /* без связи — у раунда будет мягкий лимит */ }
+  }
+
   // keepalive — запрос дойдёт, даже если ученик сразу закрыл вкладку
   function sendScore(score, final) {
     const tok = store.get('token');
@@ -571,6 +581,7 @@
       const grid = new Array(N * N).fill(0);
       d.cur = { grid: grid.join(''), tray: newTray(grid, mode), score: 0, combo: 0, idle: 0, best0: g.best };
       save(d);
+      markRoundStart();
       play(d.cur);
     }
 

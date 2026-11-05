@@ -12,8 +12,14 @@ x-logging: &logging
 services:
   # HTTPS (сертификат Let's Encrypt выпускается и продлевается сам), раздача страниц, прокси к API
   caddy:
-    image: caddy:2-alpine
+    # Файлы сайта — внутри образа, заранее сжатые (см. caddy.Dockerfile)
+    build:
+      context: ..
+      dockerfile: deploy/caddy.Dockerfile
+    image: saq-bol-caddy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
@@ -22,7 +28,6 @@ services:
       SITE_DOMAIN: ${SITE_DOMAIN:?укажите SITE_DOMAIN в deploy/.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ../public:/srv/public:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -35,6 +40,15 @@ services:
     image: saq-bol-app
     restart: unless-stopped
     init: true
+    # Защита на случай взлома приложения: файлы образа только для чтения, без прав
+    # администратора внутри контейнера и без повышения прав
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       MONGODB_URI: mongodb://saqbol:${MONGO_APP_PASSWORD}@mongo:27017/saq-bol?authSource=saq-bol
       MONGODB_DB: saq-bol
@@ -51,6 +65,8 @@ services:
   mongo:
     image: mongo:8.0
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     command: ["--wiredTigerCacheSizeGB", "${MONGO_CACHE_GB:-1}"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
@@ -71,6 +87,8 @@ services:
   backup:
     image: mongo:8.0
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["bash", "/backup.sh"]
     environment:
       MONGO_URI: mongodb://root:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin

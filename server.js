@@ -11,6 +11,13 @@ if (cluster.isPrimary && workers > 1) {
   let stopping = false;
   for (let i = 0; i < workers; i++) cluster.fork();
 
+  // Защита от наплыва (lib/app.js, FLOOD): процесс, проверивший токен ученика, сообщает
+  // о нём остальным — так ученик сразу «свой» для всех процессов
+  cluster.on('message', (from, msg) => {
+    if (!msg || typeof msg.sbToken !== 'string') return;
+    for (const w of Object.values(cluster.workers)) if (w !== from && w.isConnected()) w.send(msg);
+  });
+
   cluster.on('exit', (worker, code, signal) => {
     if (stopping) {
       if (!Object.keys(cluster.workers).length) process.exit(0);

@@ -10,8 +10,9 @@
 //
 // Параметры:
 //   --url        адрес сайта (обязательно)
-//   --students   сколько учеников (по умолчанию 500; с одного IP — не больше ~1900 за 10 минут,
-//                иначе сработает защита от спама)
+//   --students   сколько учеников (по умолчанию 500; с одного IP — не больше ~9 000 за час,
+//                иначе сработает защита от спама; на «подождите» (429) тест, как браузер,
+//                ждёт и повторяет — число повторов печатается в конце)
 //   --ramp       за сколько секунд все ученики начинают (по умолчанию 60)
 //   --think      пауза между действиями ученика, мс (по умолчанию 3000, ±50%)
 //   --admin      пароль админки: тогда каждые 30 с открывается «Аналитика», как в день мероприятия
@@ -44,22 +45,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const think = () => sleep(THINK_MS * (0.5 + Math.random()));
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
+let retries429 = 0; // повторов после 429 с Retry-After — так же делает браузер ученика
+
 async function call(name, path, { method = 'GET', body, token, cookie, headers = {} } = {}) {
   const s = stat(name);
   const t0 = performance.now();
   try {
-    const res = await fetch(BASE + path, {
-      method,
-      headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { 'X-Participant-Token': token } : {}),
-        ...(cookie ? { Cookie: cookie } : {}),
-        'X-Lang': 'ru',
-        ...headers,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
-    });
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetch(BASE + path, {
+        method,
+        headers: {
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...(token ? { 'X-Participant-Token': token } : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+          'X-Lang': 'ru',
+          ...headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const wait = Number(res.headers.get('retry-after'));
+      if (res.status !== 429 || !(wait > 0 && wait <= 15) || attempt >= 3) break;
+      retries429 += 1;
+      await res.arrayBuffer();
+      await sleep(wait * 1000 + Math.random() * 800);
+    }
     const text = await res.text();
     s.times.push(performance.now() - t0);
     if (!res.ok) {
@@ -166,6 +177,7 @@ function report(elapsedS) {
   console.table(rows);
   console.log(`Учеников: ${STUDENTS}, прошли до конца: ${finished}, получили сертификат: ${certified}, прервались из-за ошибок: ${failedStudents}`);
   console.log(`Запросов: ${total} за ${elapsedS.toFixed(0)} с (в среднем ${(total / elapsedS).toFixed(0)} в секунду), ошибок: ${totalErr}`);
+  console.log(`Повторов после «подождите» (429 от защиты от наплыва): ${retries429}`);
 }
 
 const list = await call('GET  /api/institutions', '/api/institutions?lang=ru');

@@ -3,6 +3,40 @@
 (function () {
   'use strict';
 
+  // Ошибки кода в браузере ученика — в журнал сервера (/api/client-error в lib/app.js),
+  // чтобы узнавать о них в день мероприятия. Не больше 5 за загрузку страницы, без личных
+  // данных: текст ошибки, файл и строка, экран (#/map — без остальной части адреса).
+  // Ошибки связи и ответы сервера (у них есть status) — не ошибки кода, их не шлём.
+  (function reportErrors() {
+    let left = 5;
+    const seen = new Set();
+    const send = (kind, msg, src) => {
+      try {
+        const key = `${kind}|${msg}|${src}`;
+        if (left <= 0 || seen.has(key)) return;
+        seen.add(key);
+        left -= 1;
+        const page = (/^#\/[a-z]*/.exec(location.hash) || ['#/'])[0];
+        fetch('/api/client-error', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind, msg: String(msg).slice(0, 300), src: String(src || '').slice(0, 200), page }),
+        }).catch(() => {});
+      } catch { /* сообщить не получилось — не мешаем игре */ }
+    };
+    window.addEventListener('error', (e) => {
+      if (!e.message) return; // не загрузилась картинка и т. п.
+      send('error', e.message, `${String(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno}`);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const r = e.reason;
+      if (r && typeof r.status === 'number') return;
+      const where = r && r.stack ? String(r.stack).split('\n').find((l) => /\.js:\d+/.test(l)) || '' : '';
+      send('promise', r && r.message ? r.message : String(r), where.trim().replace(/^at\s+/, '').replace(/https?:\/\/[^/]+\//, ''));
+    });
+  })();
+
   // h('div', {class: 'card', onclick: fn}, 'текст', child) — безопасное создание DOM.
   // Свойство html используется только для собственного статического контента игры.
   function h(tag, props, ...children) {
@@ -65,14 +99,22 @@
     if (token) headers['X-Participant-Token'] = token;
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
     let res;
-    try {
-      res = await fetch(path, {
-        method: opts.method || 'GET',
-        headers,
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-      });
-    } catch {
-      throw Object.assign(new Error(t('noConnection')), { status: 0 });
+    // Сервер перегружен запросами с этого адреса (429 с Retry-After, см. FLOOD в lib/app.js) —
+    // ждём, сколько он просит, и повторяем: запрос не выполнялся, повтор безопасен.
+    // Небольшой случайный разброс — чтобы весь класс не повторил в одну и ту же секунду.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res = await fetch(path, {
+          method: opts.method || 'GET',
+          headers,
+          body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        });
+      } catch {
+        throw Object.assign(new Error(t('noConnection')), { status: 0 });
+      }
+      const wait = Number(res.headers.get('Retry-After'));
+      if (res.status !== 429 || !(wait > 0 && wait <= 15) || attempt >= 3) break;
+      await sleep(wait * 1000 + Math.random() * 800);
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.error || t('serverError')), { status: res.status });

@@ -68,9 +68,9 @@ p { margin: 0; }
   gap: 10px;
   height: 56px;
   padding: 0 12px 0 14px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: saturate(1.4) blur(10px);
-  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  /* Без размытия подложки (backdrop-filter): на дешёвых телефонах оно пересчитывается
+     в каждом кадре прокрутки */
+  background: rgba(255, 255, 255, 0.97);
   border-bottom: 1px solid var(--line);
 }
 .brand {
@@ -150,9 +150,6 @@ main#app {
   border-top: 1px solid var(--line);
 }
 .footer strong { color: var(--ink-2); }
-.footer .hot { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
-/* Контакты — значок + номер, нажатием — звонок */
-.sos-chip { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 10px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1.5px var(--line) inset; color: var(--navy); font-weight: 800; font-size: 14px; text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .footer .org { font-size: 11px; line-height: 1.35; opacity: 0.85; }
 
 /* ─── Базовые элементы ───────────────────────────────────────────────── */
@@ -936,7 +933,21 @@ main#app {
   transition: transform 0.15s;
 }
 .jnode:active { transform: translate(-50%, -50%) scale(0.94); }
-.jnode.available { background: radial-gradient(circle at 35% 30%, #fff8d6, #ffcb2f); animation: nodePulse 1.6s ease-out infinite; }
+/* Пульс доступной миссии — кольцом-псевдоэлементом (transform + opacity): видеокарта
+   анимирует его сама, без перерисовки карты в каждом кадре. Анимация box-shadow
+   на дешёвых телефонах занимала до 80% времени основного потока, и карта тормозила. */
+.jnode.available { background: radial-gradient(circle at 35% 30%, #fff8d6, #ffcb2f); box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff; }
+.jnode.available::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 10px rgba(255, 214, 81, 0.7);
+  pointer-events: none;
+  animation: ringPulse 1.6s ease-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes ringPulse { 0% { transform: scale(1); opacity: 1; } 70%, 100% { transform: scale(1.28); opacity: 0; } }
 .jnode.done { background: radial-gradient(circle at 35% 30%, #effff4, #7ad69c); box-shadow: 0 6px 0 #2f8f57, 0 0 0 6px #fff; }
 .jnode.locked { background: radial-gradient(circle at 35% 30%, #f3f5f9, #c9d0dc); box-shadow: 0 6px 0 #8e98ab, 0 0 0 6px rgba(255, 255, 255, 0.6); font-size: 30px; }
 .jnode.locked .emo { filter: grayscale(1); opacity: 0.55; }
@@ -946,12 +957,9 @@ main#app {
 .jnode .check { position: absolute; right: -4px; top: -4px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--ok); color: #fff; font-size: 16px; font-weight: 900; box-shadow: 0 0 0 3px #fff; }
 .jnode.final.done { background: radial-gradient(circle at 35% 30%, #fff8d6, #ffcb2f); box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff; }
 .jnode.waiting { animation: none; filter: grayscale(0.85); opacity: 0.85; }
-.jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, nodePulse 1.6s ease-out 0.9s infinite; }
-@keyframes nodePulse {
-  0% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 6px rgba(255, 214, 81, 0.7); }
-  70% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 26px rgba(255, 214, 81, 0); }
-  100% { box-shadow: 0 6px 0 #c98f00, 0 0 0 6px #fff, 0 0 0 6px rgba(255, 214, 81, 0); }
-}
+.jnode.waiting::after { content: none; }
+.jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.jnode.unlock::after { animation-delay: 0.9s; }
 @keyframes unlockPop { 0% { transform: translate(-50%, -50%) scale(0.2) rotate(-25deg); } 100% { transform: translate(-50%, -50%) scale(1) rotate(0); } }
 .jlabel { position: absolute; z-index: 2; width: 46%; max-width: 170px; text-align: center; transform: translate(-50%, 0); pointer-events: none; }
 .jlabel .num { display: block; font-size: 11px; font-weight: 900; color: #fff; text-transform: uppercase; letter-spacing: 0.6px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); margin-bottom: 3px; }
@@ -981,9 +989,13 @@ main#app {
 }
 .ops .trail-base { stroke: rgba(79, 224, 255, 0.16); stroke-width: 12; stroke-linejoin: round; }
 .ops .trail-base.locked { stroke: rgba(148, 163, 196, 0.1); }
-.ops .trail-dash { stroke: var(--ops-glow); stroke-width: 2.5; stroke-dasharray: 10 8; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(79, 224, 255, 0.9)); animation: opsFlow 1.2s linear infinite; }
-.ops .trail-dash.locked { stroke: rgba(160, 175, 205, 0.4); stroke-dasharray: 2 8; filter: none; animation: none; }
-@keyframes opsFlow { to { stroke-dashoffset: -18; } }
+/* Бегущий пунктир двигает таймер в app.js (renderMap) — 5 шагов в секунду. CSS-анимация
+   линии со свечением пересчитывалась и перерисовывалась в каждом кадре, и на слабых
+   телефонах карта тормозила. Слой маршрута отдельный, чтобы с ним не перерисовывалась
+   вся карта. */
+.ops .jtrail { will-change: transform; }
+.ops .trail-dash { stroke: var(--ops-glow); stroke-width: 2.5; stroke-dasharray: 10 8; stroke-dashoffset: var(--dash, 0px); stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(79, 224, 255, 0.9)); }
+.ops .trail-dash.locked { stroke: rgba(160, 175, 205, 0.4); stroke-dasharray: 2 8; stroke-dashoffset: 0; filter: none; }
 
 .ops-hud {
   position: absolute;
@@ -1017,7 +1029,8 @@ main#app {
   background: radial-gradient(circle at 35% 30%, #1d3a6b, #0f2147);
   box-shadow: 0 0 0 2px rgba(79, 224, 255, 0.55), 0 0 0 7px rgba(79, 224, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.45);
 }
-.ops .jnode.available { background: radial-gradient(circle at 35% 30%, #22568f, #12305e); animation: opsPulse 1.8s ease-out infinite; }
+.ops .jnode.available { background: radial-gradient(circle at 35% 30%, #22568f, #12305e); box-shadow: 0 0 0 2px var(--ops-glow), 0 8px 18px rgba(0, 0, 0, 0.45); }
+.ops .jnode.available::after { inset: -2px; box-shadow: 0 0 0 8px rgba(79, 224, 255, 0.55); animation-duration: 1.8s; }
 .ops .jnode.done { background: radial-gradient(circle at 35% 30%, #1b4d5a, #0f2f3d); box-shadow: 0 0 0 2px var(--ops-ok), 0 0 0 7px rgba(47, 211, 138, 0.12), 0 8px 18px rgba(0, 0, 0, 0.45); }
 .ops .jnode.locked { background: #13203f; box-shadow: 0 0 0 2px rgba(148, 163, 196, 0.35), 0 8px 18px rgba(0, 0, 0, 0.4); }
 .ops .jnode.locked .emo { opacity: 0.35; }
@@ -1025,12 +1038,7 @@ main#app {
 .ops .jnode.final.done { background: radial-gradient(circle at 35% 30%, #5c4710, #241c06); box-shadow: 0 0 0 2px #ffcb2f, 0 0 26px rgba(255, 203, 47, 0.45), 0 8px 18px rgba(0, 0, 0, 0.45); }
 .ops .jnode .lock { background: #0f2147; box-shadow: 0 0 0 2px rgba(148, 163, 196, 0.5); }
 .ops .jnode .check { background: var(--ops-ok); box-shadow: 0 0 0 3px #0b1733; }
-.ops .jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, opsPulse 1.8s ease-out 0.9s infinite; }
-@keyframes opsPulse {
-  0% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 2px rgba(79, 224, 255, 0.6), 0 8px 18px rgba(0, 0, 0, 0.45); }
-  70% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 24px rgba(79, 224, 255, 0), 0 8px 18px rgba(0, 0, 0, 0.45); }
-  100% { box-shadow: 0 0 0 2px var(--ops-glow), 0 0 0 2px rgba(79, 224, 255, 0), 0 8px 18px rgba(0, 0, 0, 0.45); }
-}
+.ops .jnode.unlock { animation: unlockPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
 
 .jmascot.ops-pin { width: auto; height: auto; padding-bottom: 8px; }
 .ops-pin .pin-label {
@@ -1357,7 +1365,7 @@ body.junior .game-card .gc-meta b { font-size: 19px; }
 .g-refresh { flex: none; width: auto; min-width: 84px; gap: 8px; font-size: 20px; }
 .g-refresh .g-count { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; background: var(--sky); color: #fff; font-size: 14px; }
 .g-refresh.pulse { animation: gPulse 1s ease-in-out infinite; }
-@keyframes gPulse { 50% { transform: scale(1.04); box-shadow: 0 0 0 4px rgba(0, 163, 196, 0.35); } }
+@keyframes gPulse { 50% { transform: scale(1.05); } }
 .g-rounds { flex: none; font-weight: 900; color: var(--ink-2); }
 /* Рейтинг: «догони соперника», общий рекорд, обгон */
 .g-race { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 13px; font-weight: 800; color: var(--ink-2); }
