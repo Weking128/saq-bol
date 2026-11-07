@@ -27,7 +27,19 @@
   const { h, store, sheet, toast, confetti, icon, fmt, reducedMotion, t, pick } = SB;
 
   const N = 8;
-  const ROUNDS_PER_MISSION = 1;
+  // Настройки из админки (Настройки → «Мини-игра»), приходят с /api/config — см. configure()
+  let cfg = { enabled: true, rating: true, names: 'name', rounds: 1, unlimited: true };
+  function configure(c) {
+    if (!c || typeof c !== 'object') return;
+    const rounds = Number(c.rounds);
+    cfg = {
+      enabled: c.enabled !== false,
+      rating: c.rating !== false,
+      names: c.names === 'initials' ? 'initials' : 'name',
+      rounds: Number.isInteger(rounds) && rounds >= 1 && rounds <= 5 ? rounds : 1,
+      unlimited: c.unlimited !== false,
+    };
+  }
   // Звёзды за миссию — те же, что на праздничном экране (app.js берёт эту функцию отсюда)
   const starsFor = (score, max) => {
     const pct = max ? score / max : 1;
@@ -375,18 +387,19 @@
   function info(me) {
     const d = load();
     const done = Number(me && me.missionsDone) || 0;
-    const unlimited = !!(me && me.passed);
+    const unlimited = cfg.unlimited && !!(me && me.passed);
     const missions = (me && me.missions) || {};
     const ids = (me && me.missionIds) || Object.keys(missions);
     const spinsEarned = ids.filter((id) => missions[id] && starsFor(missions[id].score, missions[id].max) === 3).length;
     return {
-      unlocked: unlimited || done > 0,
+      enabled: cfg.enabled,
+      unlocked: cfg.enabled && (!!(me && me.passed) || done > 0),
       unlimited,
-      left: unlimited ? Infinity : Math.max(0, done * ROUNDS_PER_MISSION - (Number(d.played) || 0)),
+      left: unlimited ? Infinity : Math.max(0, done * cfg.rounds - (Number(d.played) || 0)),
       best: Math.max(Number(d.best) || 0, Number(me && me.gameBest) || 0),
       spins: Math.max(0, spinsEarned - (Number(d.spinsUsed) || 0)),
       hasRound: !!(d.cur && Array.isArray(d.cur.tray) && typeof d.cur.grid === 'string'),
-      perMission: ROUNDS_PER_MISSION,
+      perMission: cfg.rounds,
       ops: modeOf(me) !== 'junior',
     };
   }
@@ -398,9 +411,28 @@
     const mode = MODES[modeOf(ctx.me)];
     let disposers = [];
     const cleanup = () => { disposers.forEach((f) => f()); disposers = []; };
+    // Игра — на весь экран: шапка и подвал сайта скрыты (body.g-full в app.css), а на телефоне
+    // по нажатию «Играть» браузер ещё и разворачивает страницу во весь экран (Android;
+    // iPhone так сайтам не разрешает — там просто без шапки и подвала)
+    document.body.classList.add('g-full');
+    let wentFull = false;
     // При входе в игру первым показывается рейтинг (мотивация), «Играть» — внизу экрана
     intro();
-    return cleanup;
+    return () => {
+      cleanup();
+      document.body.classList.remove('g-full');
+      if (wentFull && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    };
+
+    // Вызывается прямо в обработчике нажатия — иначе браузер не разрешит полный экран
+    function goFull() {
+      const el = document.documentElement;
+      const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+      if (!touch || document.fullscreenElement || !el.requestFullscreen) return;
+      try {
+        el.requestFullscreen({ navigationUI: 'hide' }).then(() => { wentFull = true; }).catch(() => {});
+      } catch { /* не поддерживается — играем без него */ }
+    }
 
     function roundsLine(g) { return g.unlimited ? '∞' : String(g.left); }
     function modeTag() { return mode.ops && h('span', { class: 'g-mode' }, '● ', t('gameModeOps')); }
@@ -427,11 +459,12 @@
     function showRules() {
       const rules = [
         ['🧩', t('gameR1')],
-        ['🎟️', t('gameR2')],
+        ['👆', t('gameRTap')],
+        ['🎟️', t('gameR2', { n: cfg.rounds })],
         ['🔄', t('gameR3')],
-        ['🎓', t('gameR4')],
+        cfg.unlimited && ['🎓', t('gameR4')],
         ['🏅', t(mode.ops ? 'gameRLevelSr' : 'gameRLevelJr')],
-      ];
+      ].filter(Boolean);
       sheet({
         emoji: '❓',
         title: t('gameRulesTitle'),
@@ -442,13 +475,13 @@
       });
     }
     function showPrivacy() {
-      sheet({ emoji: 'ℹ️', title: t('gameInfo'), text: t('gamePrivacy'), actions: [{ label: 'OK' }], dismissible: true });
+      sheet({ emoji: 'ℹ️', title: t('gameInfo'), text: t(cfg.names === 'initials' ? 'gamePrivacyInitials' : 'gamePrivacy'), actions: [{ label: 'OK' }], dismissible: true });
     }
     // Главная кнопка внизу: продолжить / играть / за новым раундом в миссию / к тесту
     function mainButton(g, resume, again = false) {
       const nm = ctx.nextMission;
-      if (resume) return h('button', { class: 'btn gold', onclick: () => play(resume) }, t('gameContinue'));
-      if (g.unlimited || g.left > 0) return h('button', { class: 'btn gold', onclick: start }, again ? t('gameAgain') : t('gamePlay'));
+      if (resume) return h('button', { class: 'btn gold', onclick: () => { goFull(); play(resume); } }, t('gameContinue'));
+      if (g.unlimited || g.left > 0) return h('button', { class: 'btn gold', onclick: () => { goFull(); start(); } }, again ? t('gameAgain') : t('gamePlay'));
       return nm
         ? h('button', { class: 'btn', onclick: () => ctx.go(`#/mission/${nm.id}`) }, '🎟️ 0 · ', t('gameToMission', { n: nm.n }))
         : h('button', { class: 'btn', onclick: () => ctx.go('#/quiz') }, '🎟️ 0 · ', t('gameToTest'));
@@ -707,7 +740,9 @@
         // во время перерисовки бывает завышен (страница на миг «отъезжает» по масштабу).
         const vh = Math.min(...[window.innerHeight, document.documentElement.clientHeight,
           window.visualViewport && window.visualViewport.height].filter((v) => v > 0));
-        S = Math.floor(Math.max(240, Math.min(w, 440, vh - 348)));
+        // Без шапки сайта (игра на весь экран) полю достаётся почти вся высота
+        const reserve = document.body.classList.contains('g-full') ? 290 : 348;
+        S = Math.floor(Math.max(240, Math.min(w, 440, vh - reserve)));
         dpr = Math.min(2, window.devicePixelRatio || 1);
         P = Math.round(S * 0.035);
         pitch = (S - P * 2) / N;
@@ -960,8 +995,38 @@
       // размеры замеряются один раз до любых изменений страницы, фигура двигается прямо
       // в обработчике касания, тень на поле перерисовывается только при смене клетки,
       // привязка — к ближайшей подходящей клетке в радиусе ~1 клетки.
+      // Чтобы пальцы не уставали: фигура летит быстрее пальца (GAIN — во столько раз дальше,
+      // чем сдвинулся палец), до верха поля хватает короткого движения. А можно и не тянуть:
+      // нажать на фигуру (она выделится), потом на клетку — фигура сама прилетит и встанет.
+      // Отпущенная фигура не прыгает, а за доли секунды долетает до своей клетки.
+      const GAIN = 1.5; // только для пальца; мышью — один к одному
+      const FLY_MS = 110; // долёт отпущенной фигуры до клетки
+      const FLY_TAP_MS = 190; // полёт из лотка на клетку по нажатию
       let drag = null;
+      let selected = -1; // фигура лотка, выбранная нажатием (−1 — нет)
+      let flying = false; // фигура летит на место — новые касания ждут
       let floats = []; // готовые «поднятые» фигуры для каждого места лотка (размер клетки поля)
+      function select(i) {
+        if (selected >= 0 && slots[selected]) slots[selected].classList.remove('selected');
+        selected = i;
+        if (i >= 0) slots[i].classList.add('selected');
+      }
+      // Фигура долетает до клетки (r0, c0) и встаёт на место
+      function flyIn(i, f, tgt, rect, ms) {
+        flying = true;
+        const ease = `transform ${ms}ms cubic-bezier(0.2, 0.8, 0.3, 1)`;
+        f.el.style.transition = ease;
+        f.inner.style.transition = ease;
+        f.el.style.transform = `translate3d(${rect.left + P + tgt.c0 * pitch}px, ${rect.top + P + tgt.r0 * pitch}px, 0)`;
+        f.inner.style.transform = '';
+        setTimeout(() => {
+          flying = false;
+          f.el.remove();
+          slots[i].classList.remove('lifted');
+          if (!screen.isConnected || over || !tray[i] || !fits(grid, cellsOf(tray[i]), tgt.r0, tgt.c0)) { kick(); return; }
+          placePiece(i, tgt);
+        }, reducedMotion ? 0 : ms);
+      }
       function buildFloat(p) {
         const cells = cellsOf(p);
         const { rows, cols } = sizeOf(cells);
@@ -979,14 +1044,19 @@
         return { el: h('div', { class: 'g-float', 'aria-hidden': 'true' }, inner), inner, w, h: hh, cells, p };
       }
       function onDown(e, i) {
-        if (drag || over || !tray[i] || (e.button !== undefined && e.button > 0)) return;
+        if (drag || flying || over || !tray[i] || (e.button !== undefined && e.button > 0)) return;
         e.preventDefault();
         if (hand) hand.classList.add('off');
         const f = floats[i] && floats[i].p === tray[i] ? floats[i] : (floats[i] = buildFloat(tray[i]));
         const rect = board.getBoundingClientRect(); // до изменений страницы — без пересчёта раскладки
         // Фигура поднимается над пальцем (палец её не закрывает); мышью — держим за середину
-        const lift = e.pointerType === 'mouse' ? f.h / 2 : f.h + pitch * 0.8;
-        drag = { i, p: tray[i], cells: f.cells, el: f.el, inner: f.inner, w: f.w, h: f.h, lift, x0: e.clientX, y0: e.clientY, pid: e.pointerId, rect, target: null, moved: false };
+        const touch = e.pointerType !== 'mouse';
+        const lift = touch ? f.h + pitch * 0.8 : f.h / 2;
+        drag = {
+          i, p: tray[i], cells: f.cells, el: f.el, inner: f.inner, w: f.w, h: f.h,
+          x0: e.clientX, y0: e.clientY, left0: e.clientX - f.w / 2, top0: e.clientY - lift, gain: touch ? GAIN : 1,
+          pid: e.pointerId, rect, target: null, moved: false,
+        };
         f.el.style.transition = 'none';
         f.inner.style.transition = 'none';
         f.inner.style.transform = '';
@@ -1020,8 +1090,9 @@
         return best;
       }
       function position(x, y) {
-        const left = x - drag.w / 2;
-        const top = y - drag.lift;
+        // Фигура уходит от места касания в GAIN раз дальше пальца, но не за край экрана
+        const left = Math.max(-drag.w / 2, Math.min(window.innerWidth - drag.w / 2, drag.left0 + (x - drag.x0) * drag.gain));
+        const top = Math.max(-drag.h / 2, Math.min(window.innerHeight - drag.h / 2, drag.top0 + (y - drag.y0) * drag.gain));
         drag.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
         const tgt = snap(left, top);
         const same = tgt ? drag.target && drag.target.r0 === tgt.r0 && drag.target.c0 === tgt.c0 : !drag.target;
@@ -1038,14 +1109,18 @@
       }
       function onUp(e) {
         if (!drag || e.pointerId !== drag.pid) return;
-        if (e.type === 'pointerup') position(e.clientX, e.clientY);
+        if (e.type === 'pointerup' && drag.moved) position(e.clientX, e.clientY);
         const d = drag;
         drag = null;
         ghost = null;
-        if (d.target && e.type === 'pointerup') {
+        if (!d.moved) {
+          // Просто нажатие: фигура выбрана — теперь нажми на клетку поля (повторное нажатие — отмена)
           d.el.remove();
           slots[d.i].classList.remove('lifted');
-          placePiece(d.i, d.target);
+          if (e.type === 'pointerup') select(selected === d.i ? -1 : d.i);
+        } else if (d.target && e.type === 'pointerup') {
+          select(-1);
+          flyIn(d.i, d, d.target, d.rect, FLY_MS);
         } else {
           // фигура плавно возвращается на место
           const sr = slots[d.i].getBoundingClientRect();
@@ -1066,12 +1141,54 @@
         slot.addEventListener('pointerdown', (e) => onDown(e, i));
         slot.addEventListener('contextmenu', (e) => e.preventDefault());
       });
+      // Нажатие на поле, когда фигура выбрана: ставим её так, чтобы середина фигуры была
+      // как можно ближе к месту нажатия (не дальше ~2 клеток), — и фигура летит туда
+      function onBoardDown(e) {
+        if (selected < 0 || flying || drag || over || !tray[selected]) return;
+        e.preventDefault();
+        const i = selected;
+        const cells = cellsOf(tray[i]);
+        const { rows, cols } = sizeOf(cells);
+        const rect = board.getBoundingClientRect();
+        const fx = (e.clientX - rect.left - P) / pitch;
+        const fy = (e.clientY - rect.top - P) / pitch;
+        let best = null;
+        for (let r0 = 0; r0 + rows <= N; r0++) {
+          for (let c0 = 0; c0 + cols <= N; c0++) {
+            const dist = (c0 + cols / 2 - fx) ** 2 + (r0 + rows / 2 - fy) ** 2;
+            if ((!best || dist < best.dist) && fits(grid, cells, r0, c0)) best = { r0, c0, dist };
+          }
+        }
+        if (!best || best.dist > 4.5) {
+          // Рядом не помещается — поле коротко «качает головой»
+          boardWrap.classList.remove('nope');
+          void boardWrap.offsetWidth;
+          boardWrap.classList.add('nope');
+          sfx.back();
+          return;
+        }
+        const f = floats[i] && floats[i].p === tray[i] ? floats[i] : (floats[i] = buildFloat(tray[i]));
+        const sr = slots[i].getBoundingClientRect();
+        f.el.style.transition = 'none';
+        f.inner.style.transition = 'none';
+        f.el.style.transform = `translate3d(${sr.left + sr.width / 2 - f.w / 2}px, ${sr.top + sr.height / 2 - f.h / 2}px, 0)`;
+        f.inner.style.transform = `scale(${trayPitch / pitch})`;
+        document.body.append(f.el);
+        slots[i].classList.add('lifted');
+        select(-1);
+        if (hand) hand.classList.add('off');
+        sfx.pick();
+        void f.el.offsetWidth; // начальное положение применилось — теперь полёт
+        flyIn(i, f, best, rect, FLY_TAP_MS);
+      }
+      boardWrap.addEventListener('pointerdown', onBoardDown);
       window.addEventListener('pointermove', onMove, { passive: true });
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onUp);
 
       // ─ Ход
       function placePiece(i, { r0, c0 }) {
+        select(-1);
         const p = tray[i];
         const cells = cellsOf(p);
         const now = performance.now();
@@ -1130,7 +1247,8 @@
       }
 
       function doRefresh() {
-        if (over || drag) return;
+        if (over || drag || flying) return;
+        select(-1);
         if (refresh <= 0) { toast(t('gameSpinHint')); return; }
         refresh -= 1;
         const d = load();
@@ -1203,5 +1321,5 @@
     }
   }
 
-  SB.game = { info, render, starsFor, LOGO, LOGO_OPS, ROUNDS_PER_MISSION };
+  SB.game = { info, render, starsFor, configure, settings: () => cfg, LOGO, LOGO_OPS };
 })();

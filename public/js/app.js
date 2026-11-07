@@ -3,6 +3,45 @@
 // Все тексты интерфейса — через SB.t() (словарь в i18n.js).
 (function () {
   'use strict';
+  // Не загрузился один из файлов сайта (обрыв связи, «умный» браузер) — вместо белого экрана
+  // просим обновить страницу, а серверу сообщаем, чего не хватило (журнал [client] … load)
+  const S = window.SB || {};
+  const missing = [
+    typeof S.t !== 'function' && 'i18n',
+    typeof S.celebrate !== 'function' && 'fx',
+    typeof S.runMission !== 'function' && 'engine',
+    !(S.MISSIONS_BY_LANG && S.MISSIONS_BY_LANG.ru && S.JUNIOR_MISSIONS_BY_LANG && S.JUNIOR_MISSIONS_BY_LANG.ru) && 'missions',
+    !(S.MISSIONS_BY_LANG && S.MISSIONS_BY_LANG.kk && S.JUNIOR_MISSIONS_BY_LANG && S.JUNIOR_MISSIONS_BY_LANG.kk) && 'missions.kk',
+    !S.game && 'game',
+    !S.cert && 'certificate',
+    typeof S.h !== 'function' && 'ui',
+  ].filter(Boolean);
+  if (missing.length) {
+    const box = document.getElementById('app');
+    if (box) {
+      box.textContent = '';
+      const card = document.createElement('div');
+      card.className = 'card stack center';
+      const p = document.createElement('p');
+      p.textContent = 'Сайт толық жүктелмеді — бетті жаңартыңыз. / Сайт загрузился не полностью — обновите страницу.';
+      const btn = document.createElement('button');
+      btn.className = 'btn gold';
+      btn.type = 'button';
+      btn.textContent = '🔄 Жаңарту / Обновить';
+      btn.addEventListener('click', () => location.reload());
+      card.append(p, btn);
+      box.append(card);
+    }
+    try {
+      fetch('/api/client-error', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'load', msg: `не загрузилось: ${missing.join(', ')}`, src: 'app.js', page: (/^#\/[a-z]*/.exec(location.hash) || ['#/'])[0] }),
+      }).catch(() => {});
+    } catch { /* без связи — не страшно */ }
+    return;
+  }
   const { h, api, store, sheet, toast, confetti, mascot, icon, sleep, fmt, t } = SB;
 
   const app = document.getElementById('app');
@@ -39,6 +78,8 @@
     const i = missions.findIndex((m) => !missionDone(m.id));
     return i < 0 ? null : { n: i + 1, id: missions[i].id, title: missions[i].title };
   }
+  // Мини-игра включена в админке (Настройки → «Мини-игра»)
+  const gameOn = () => SB.game.settings().enabled;
   const gameBtnLabel = () => {
     const g = SB.game.info(state.me);
     return t('gameBtn', { n: g.unlimited ? '∞' : g.left });
@@ -73,11 +114,14 @@
 
   async function changeLang() {
     // Настройки мероприятия, названия заведений и подписи класса зависят от языка
-    state.institutions = null;
     try {
       state.config = await api(`/api/config?lang=${SB.lang}`);
+      SB.game.configure(state.config.game);
       if (state.me) state.me = (await api('/api/me')).participant;
     } catch { /* покажем с прежними данными */ }
+    // Список заведений сбрасываем только сейчас: пока грузились тексты, ученик мог нажать
+    // на район, и экран регистрации падал на пустом списке
+    state.institutions = null;
     applyStaticTexts();
     renderFooter();
     route();
@@ -229,6 +273,7 @@
 
     // Шаг 1б: учебное заведение в выбранном городе / районе
     function stepInstitution() {
+      if (!state.institutions) return renderRegister(); // список ещё грузится (смена языка)
       const inDistrict = state.institutions.filter((i) => i.district === form.district);
       const presentTypes = TYPE_TABS.filter((tb) => inDistrict.some((i) => i.type === tb.id));
       const list = h('div', { class: 'inst-list', role: 'list' });
@@ -545,6 +590,7 @@
 
   // Карточка мини-игры на карте: закрыта до первой миссии, дальше — рекорд и раунды
   function gameCard() {
+    if (!gameOn()) return null;
     const g = SB.game.info(state.me);
     // 7+ классы — строгая карточка в стиле оперативной карты
     const logo = h('span', { class: 'gc-logo', html: g.ops ? SB.game.LOGO_OPS : SB.game.LOGO });
@@ -565,6 +611,7 @@
   }
 
   function renderGame() {
+    if (!gameOn()) return go('#/map');
     if (!SB.game.info(state.me).unlocked) {
       toast(t('gameLockedToast'));
       return go('#/map');
@@ -640,10 +687,10 @@
     const next = missions[idx + 1];
 
     // Праздник! Новая миссия — раунд мини-игры, впервые 3 звезды — «Новые фигуры»
-    const gotRound = firstTime && !state.me.passed;
+    const gotRound = gameOn() && firstTime && !state.me.passed;
     const had3 = !!prevBest && starsFor(prevBest.score, prevBest.max) === 3;
-    const gotSpin = stars === 3 && !had3;
-    const bonusLines = [gotRound && t(doneBefore ? 'gameBonus' : 'gameBonusFirst'), gotSpin && t('gameSpinBonus')].filter(Boolean);
+    const gotSpin = gameOn() && stars === 3 && !had3;
+    const bonusLines = [gotRound && t(doneBefore ? 'gameBonus' : 'gameBonusFirst', { n: SB.game.settings().rounds }), gotSpin && t('gameSpinBonus')].filter(Boolean);
     await SB.celebrate({
       emoji: mission.badge.emoji,
       title: t('missionComplete'),
@@ -678,14 +725,14 @@
         h('b', null, t('rememberMain')),
         h('ul', { class: 'lesson', style: { margin: 0, paddingLeft: '20px' } }, mission.recap.map((r) => h('li', null, r)))),
       // Не 3 звезды и «Новые фигуры» за эту миссию ещё не получены — зовём пройти ещё раз
-      stars < 3 && !had3 && h('div', { class: 'rule blue row spin-hint' },
+      gameOn() && stars < 3 && !had3 && h('div', { class: 'rule blue row spin-hint' },
         h('b', { style: { flex: '1' } }, t('gameSpinFinish')),
         h('button', { class: 'btn small ghost', style: { width: 'auto' }, onclick: () => go(`#/mission/${id}`) }, t('replayBtn'))),
       next
         ? h('button', { class: 'btn gold', onclick: () => go('#/map') }, t('toMapNext'))
         : h('button', { class: 'btn gold', onclick: () => go('#/memo') }, t('toFinalTest')),
       next && h('button', { class: 'btn ghost', onclick: () => go(`#/mission/${next.id}`) }, t('nextMission', { n: idx + 2, title: next.title })),
-      h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel())));
+      gameOn() && h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel())));
   }
 
   // ─── Памятка ──────────────────────────────────────────────────────────
@@ -790,6 +837,17 @@
       } catch (e) {
         sending = false;
         if (!alive()) return;
+        // Ответы уже приняты: первая отправка дошла, а ответ сервера потерялся по дороге.
+        // Берём итог с сервера: сдал — к сертификату, нет — к экрану теста (там лучший результат)
+        if (e.status === 409) {
+          try { state.me = (await api('/api/me')).participant; } catch { /* покажем с прежними данными */ }
+          if (!alive()) return;
+          state.quiz = null;
+          updateTopbar();
+          toast(t('answersSaved'), 'ok');
+          go(state.me && state.me.passed ? '#/certificate' : '#/quiz');
+          return;
+        }
         toast(e.message, 'bad');
         nextBtn.disabled = false;
         nextBtn.textContent = t('finishTest');
@@ -843,11 +901,12 @@
   async function renderResult(res) {
     const alive = viewGuard();
     if (res.passed) {
-      await SB.celebrate({ emoji: '🏆', title: t('testPassedWow'), subtitle: t('rankFinal'), stars: 3, bonus: t('gameBonusFull'), button: t('hooray') });
+      await SB.celebrate({ emoji: '🏆', title: t('testPassedWow'), subtitle: t('rankFinal'), stars: 3, bonus: gameOn() && SB.game.settings().unlimited ? t('gameBonusFull') : null, button: t('hooray') });
       if (!alive()) return;
     }
-    const reviewBox = h('div', { hidden: true }, reviewList(res.review));
-    const toggle = h('button', {
+    const review = Array.isArray(res.review) ? res.review : [];
+    const reviewBox = h('div', { hidden: true }, reviewList(review));
+    const toggle = review.length && h('button', {
       class: 'btn ghost',
       onclick: () => { reviewBox.hidden = !reviewBox.hidden; toggle.textContent = reviewBox.hidden ? t('showReview') : t('hideReview'); },
     }, t('showReview'));
@@ -909,7 +968,7 @@
       h('p', { class: 'muted small center' }, t('certNote', { num: data.number })),
       pdfBtn, shareBtn, pngBtn,
       h('div', { class: 'rule blue' }, t('tellFriends')),
-      h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel()),
+      gameOn() && h('button', { class: 'btn ghost', onclick: () => go('#/game') }, gameBtnLabel()),
       h('button', { class: 'btn ghost', onclick: () => go('#/memo') }, t('memoBtn')),
       h('button', { class: 'link-btn', onclick: logout }, t('finishAndExit'))));
   }
@@ -943,6 +1002,7 @@
   async function boot() {
     try {
       state.config = await api(`/api/config?lang=${SB.lang}`);
+      SB.game.configure(state.config.game);
     } catch (e) {
       return showError(e, boot);
     }

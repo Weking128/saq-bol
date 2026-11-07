@@ -822,18 +822,40 @@
     field('signer_name', 'ФИО подписанта', 'Например: А. Б. Иванов. Можно оставить пустым'),
     field('pass_score', 'Проходной балл (из 10)', 'Сколько правильных ответов нужно для сертификата', 'number'),
     field('cert_prefix', 'Префикс номера сертификата', 'Латинские буквы и цифры, например SB'),
-    h('label', null, 'Рейтинг в мини-игре «Сейф-пазл»',
-      h('small', null, 'Ученики видят соперников из своей школы (имя, первая буква фамилии, класс) и общий рекорд (инициалы и школа). Если выключить — остаётся только личный рекорд'),
-      h('select', { class: 'ctl', name: 'game_rating' },
-        h('option', { value: 'on', selected: s.game_rating !== 'off' }, 'Показывать'),
-        h('option', { value: 'off', selected: s.game_rating === 'off' }, 'Не показывать'))),
     h('div', null, h('button', { class: 'abtn', type: 'submit' }, 'Сохранить настройки')));
+
+    // Мини-игра «Сейф-пазл» — отдельная форма: сохраняются только её настройки
+    const select = (key, label, hint, options) => h('label', null, label, hint && h('small', null, hint),
+      h('select', { class: 'ctl', name: key }, options.map(([v, text]) => h('option', { value: v, selected: String(s[key]) === v }, text))));
+    const gameForm = h('form', {
+      class: 'form-grid',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(gameForm).entries());
+        try {
+          await api('/api/admin/settings', { method: 'PUT', body });
+          toast('Настройки игры сохранены — у учеников в течение пары минут', 'ok');
+        } catch (ex) { toast(ex.message, 'bad'); }
+      },
+    },
+    select('game_enabled', 'Мини-игра', 'Если выключить, игра пропадёт у всех учеников: на карте, после миссий и на странице сертификата',
+      [['on', 'Включена'], ['off', 'Выключена']]),
+    select('game_rating', 'Рейтинг', 'Соперники из своей школы и рейтинг Жамбылской области. Если не показывать — у ученика остаётся только личный рекорд',
+      [['on', 'Показывать'], ['off', 'Не показывать']]),
+    select('game_rating_names', 'Кого видно в рейтинге области', 'Рядом с именем — школа ученика. В рейтинге своей школы всегда видны имя, первая буква фамилии и класс. Полностью фамилия не показывается нигде',
+      [['name', 'Имя и первая буква фамилии — Арман К.'], ['initials', 'Только инициалы — А. К.']]),
+    select('game_rounds', 'Раундов за каждую пройденную миссию', 'Сколько раундов игры ученик получает за каждую новую миссию',
+      [['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5']]),
+    select('game_unlimited', 'После сертификата', 'Что получает ученик, сдавший итоговый тест',
+      [['on', 'Раунды без ограничений'], ['off', 'Как раньше — только раунды за миссии']]),
+    h('div', null, h('button', { class: 'abtn', type: 'submit' }, 'Сохранить настройки игры')));
 
     main.append(
       h('section', { class: 'panel a-section' }, h('h2', null, 'Мероприятие и сертификат'), form),
+      h('section', { class: 'panel a-section' }, h('h2', null, 'Мини-игра «Сейф-пазл»'), gameForm),
       h('section', { class: 'panel a-section' }, h('h2', null, 'Пароль администратора'),
-        h('p', { class: 'small' }, 'Пароль задаётся переменной ADMIN_PASSWORD в настройках проекта Vercel (Settings → Environment Variables). ' +
-          'Чтобы сменить пароль, измените переменную и сделайте Redeploy — все открытые сессии админки завершатся автоматически.')),
+        h('p', { class: 'small' }, 'Пароль задаётся строкой ADMIN_PASSWORD в файле deploy/.env на сервере. ' +
+          'Чтобы сменить пароль, исправьте её и выполните в папке deploy «sudo docker compose up -d» — все открытые сессии админки завершатся автоматически.')),
       h('section', { class: 'panel a-section' }, h('h2', null, 'Проверка сертификатов'),
         h('p', { class: 'small' }, 'Любой может проверить подлинность сертификата по номеру на странице ', h('a', { href: '/verify', target: '_blank' }, `${location.host}/verify`), '.')));
   }

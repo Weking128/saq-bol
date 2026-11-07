@@ -3,6 +3,17 @@
 (function () {
   'use strict';
 
+  // Старые браузеры (Chrome до 86, Safari до 14 — у учеников встречаются) не знают
+  // replaceChildren, а без него сайт не запускался. Заменяем тем же действием «по-старому».
+  if (!Element.prototype.replaceChildren) {
+    const replaceChildren = function (...nodes) {
+      while (this.lastChild) this.removeChild(this.lastChild);
+      this.append(...nodes);
+    };
+    Element.prototype.replaceChildren = replaceChildren;
+    if (window.DocumentFragment) DocumentFragment.prototype.replaceChildren = replaceChildren;
+  }
+
   // Ошибки кода в браузере ученика — в журнал сервера (/api/client-error в lib/app.js),
   // чтобы узнавать о них в день мероприятия. Не больше 5 за загрузку страницы, без личных
   // данных: текст ошибки, файл и строка, экран (#/map — без остальной части адреса).
@@ -116,8 +127,12 @@
       if (res.status !== 429 || !(wait > 0 && wait <= 15) || attempt >= 3) break;
       await sleep(wait * 1000 + Math.random() * 800);
     }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(data.error || t('serverError')), { status: res.status });
+    let data = null;
+    try { data = await res.json(); } catch { /* тело не дочиталось или это не JSON */ }
+    if (!res.ok) throw Object.assign(new Error((data && data.error) || t('serverError')), { status: res.status });
+    // «Успешный» ответ без тела (оборвалась связь, школьный фильтр подменил страницу) — это обрыв
+    // связи, а не пустой ответ: раньше экраны падали на отсутствующих полях (экран результата теста)
+    if (!data || typeof data !== 'object') throw Object.assign(new Error(t('noConnection')), { status: 0 });
     return data;
   }
 

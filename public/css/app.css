@@ -639,7 +639,7 @@ main#app {
 
 .sheet-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0; inset: 0;
   z-index: 50;
   background: rgba(13, 27, 61, 0.45);
   display: flex;
@@ -860,7 +860,7 @@ main#app {
 
 .score-ring { position: relative; width: 160px; height: 160px; margin: 0 auto; }
 .score-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.score-ring .val { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.score-ring .val { position: absolute; top: 0; right: 0; bottom: 0; left: 0; inset: 0; display: grid; place-items: center; text-align: center; }
 .score-ring .val b { display: block; font-size: 44px; line-height: 1; color: var(--navy); }
 .score-ring .val small { color: var(--muted); font-weight: 700; }
 
@@ -878,7 +878,7 @@ main#app {
 .cert-preview { border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-lg); background: #fff; }
 .cert-preview canvas { display: block; width: 100%; height: auto; }
 
-.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
+.confetti { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
 .confetti i { position: absolute; top: -20px; width: 10px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
 @keyframes fall { to { transform: translate3d(var(--dx), 110vh, 0) rotate(var(--rot)); } }
 
@@ -896,7 +896,7 @@ main#app {
     linear-gradient(180deg, #b6ecae 0%, #79cf8b 40%, #48ad72 75%, #2f8c5c 100%);
   box-shadow: var(--shadow-lg);
 }
-.jtrail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.jtrail { position: absolute; top: 0; right: 0; bottom: 0; left: 0; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .jtrail path { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; }
 .trail-base { stroke: #f1dca6; stroke-width: 24; }
 .trail-base.locked { stroke: rgba(241, 220, 166, 0.45); }
@@ -940,7 +940,7 @@ main#app {
 .jnode.available::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  top: -6px; right: -6px; bottom: -6px; left: -6px; inset: -6px;
   border-radius: 50%;
   box-shadow: 0 0 0 10px rgba(255, 214, 81, 0.7);
   pointer-events: none;
@@ -1030,7 +1030,7 @@ main#app {
   box-shadow: 0 0 0 2px rgba(79, 224, 255, 0.55), 0 0 0 7px rgba(79, 224, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.45);
 }
 .ops .jnode.available { background: radial-gradient(circle at 35% 30%, #22568f, #12305e); box-shadow: 0 0 0 2px var(--ops-glow), 0 8px 18px rgba(0, 0, 0, 0.45); }
-.ops .jnode.available::after { inset: -2px; box-shadow: 0 0 0 8px rgba(79, 224, 255, 0.55); animation-duration: 1.8s; }
+.ops .jnode.available::after { top: -2px; right: -2px; bottom: -2px; left: -2px; inset: -2px; box-shadow: 0 0 0 8px rgba(79, 224, 255, 0.55); animation-duration: 1.8s; }
 .ops .jnode.done { background: radial-gradient(circle at 35% 30%, #1b4d5a, #0f2f3d); box-shadow: 0 0 0 2px var(--ops-ok), 0 0 0 7px rgba(47, 211, 138, 0.12), 0 8px 18px rgba(0, 0, 0, 0.45); }
 .ops .jnode.locked { background: #13203f; box-shadow: 0 0 0 2px rgba(148, 163, 196, 0.35), 0 8px 18px rgba(0, 0, 0, 0.4); }
 .ops .jnode.locked .emo { opacity: 0.35; }
@@ -1064,7 +1064,7 @@ main#app {
 body.no-scroll { overflow: hidden; }
 .celebrate {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0; inset: 0;
   z-index: 100;
   display: grid;
   place-items: center;
@@ -1074,7 +1074,7 @@ body.no-scroll { overflow: hidden; }
   animation: fade 0.25s ease;
 }
 .celebrate.leaving { opacity: 0; transition: opacity 0.25s; }
-.celebrate canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.celebrate canvas { position: absolute; top: 0; right: 0; bottom: 0; left: 0; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .celebrate .rays {
   position: absolute;
   left: 50%;
@@ -1295,8 +1295,17 @@ body.junior .game-card .gc-meta b { font-size: 19px; }
 .g-combo { flex: 1; min-width: 0; text-align: center; font-weight: 900; font-size: 15px; color: #e8650a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .g-sound { font-size: 20px; }
 .g-board-wrap { position: relative; flex: none; }
+/* Фигура рядом не помещается — поле коротко «качает головой» (только transform) */
+.g-board-wrap.nope { animation: gNope 0.28s ease; }
+@keyframes gNope { 20% { transform: translateX(-6px); } 50% { transform: translateX(5px); } 80% { transform: translateX(-3px); } }
+
+/* Игра на весь экран: без шапки и подвала сайта (game.js ставит body.g-full) */
+body.g-full .topbar, body.g-full .footer { display: none; }
+body.g-full main#app { display: flex; flex-direction: column; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px calc(10px + var(--safe-b)); }
+/* Раунд — по центру экрана по высоте (auto-отступы не обрезают верх, если места мало) */
+body.g-full main#app > .g-screen { margin-top: auto; margin-bottom: auto; }
 .g-board { display: block; border-radius: 20px; box-shadow: var(--shadow-lg); touch-action: none; }
-.g-fx { position: absolute; inset: 0; pointer-events: none; }
+.g-fx { position: absolute; top: 0; right: 0; bottom: 0; left: 0; inset: 0; pointer-events: none; }
 .g-pop {
   position: absolute;
   font-size: 24px;
@@ -1346,6 +1355,9 @@ body.junior .game-card .gc-meta b { font-size: 19px; }
 }
 .g-slot canvas { display: block; }
 .g-slot.lifted canvas, .g-slot.empty canvas { opacity: 0; }
+/* Фигура выбрана нажатием — теперь нажать на клетку поля */
+.g-slot.selected { box-shadow: 0 0 0 3px var(--gold), var(--shadow); transform: translateY(-4px); transition: transform 0.12s ease; }
+.g-screen.ops .g-slot.selected { box-shadow: 0 0 0 2px #4fe0ff, 0 0 14px rgba(79, 224, 255, 0.45); }
 .g-slot.dim canvas { opacity: 0.35; filter: grayscale(0.7); }
 .g-float { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; will-change: transform; }
 .g-float-in { transform-origin: 50% 50%; }
