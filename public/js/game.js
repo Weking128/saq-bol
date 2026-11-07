@@ -414,13 +414,15 @@
     // Игра — на весь экран: шапка и подвал сайта скрыты (body.g-full в app.css), а на телефоне
     // по нажатию «Играть» браузер ещё и разворачивает страницу во весь экран (Android;
     // iPhone так сайтам не разрешает — там просто без шапки и подвала)
+    // g-ops — тёмный фон оперативного режима на весь экран; g-round — идёт раунд (без жестов страницы)
     document.body.classList.add('g-full');
+    document.body.classList.toggle('g-ops', !!mode.ops);
     let wentFull = false;
     // При входе в игру первым показывается рейтинг (мотивация), «Играть» — внизу экрана
     intro();
     return () => {
       cleanup();
-      document.body.classList.remove('g-full');
+      document.body.classList.remove('g-full', 'g-ops', 'g-round');
       if (wentFull && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     };
 
@@ -489,6 +491,7 @@
 
     function intro() {
       cleanup();
+      document.body.classList.remove('g-round');
       SB.warmAudio(); // звук готовим заранее, чтобы первое касание фигуры не тормозило
       const g = info(ctx.me);
       const d = load();
@@ -514,6 +517,7 @@
     // r: { score, best, isBest, prevPlace, submit }
     function result(r) {
       cleanup();
+      document.body.classList.remove('g-round');
       const g = info(ctx.me);
       const placeEl = h('span', { class: 'g-res-place' });
       const ratingBox = h('div', { class: 'g-rating' });
@@ -620,6 +624,7 @@
 
     function play(cur) {
       cleanup();
+      document.body.classList.add('g-round');
       const grid = cur.grid.split('').map((ch) => Math.min(mode.colors.length, Number(ch) || 0));
       let tray = cur.tray.slice(0, 3);
       while (tray.length < 3) tray.push(null);
@@ -741,8 +746,23 @@
         const vh = Math.min(...[window.innerHeight, document.documentElement.clientHeight,
           window.visualViewport && window.visualViewport.height].filter((v) => v > 0));
         // Без шапки сайта (игра на весь экран) полю достаётся почти вся высота
-        const reserve = document.body.classList.contains('g-full') ? 290 : 348;
-        S = Math.floor(Math.max(240, Math.min(w, 440, vh - reserve)));
+        const full = document.body.classList.contains('g-full');
+        size(Math.floor(Math.max(240, Math.min(w, 440, vh - (full ? 290 : 348)))));
+        // Проверка по факту: у телефонов разные вырезы камеры и системные панели — если игра
+        // не помещается в экран, поле уменьшается ровно на нехватку (иначе низ был бы не виден)
+        if (full) {
+          const over = Math.ceil(root.scrollHeight - root.clientHeight);
+          if (over > 0 && S > 240) size(Math.max(240, S - over));
+        }
+        sprites = {};
+        bg = drawBackground();
+        drawTray();
+        placeHint();
+        kick();
+      }
+      // Размеры поля и лотка под сторону поля s (без перерисовки картинок)
+      function size(s) {
+        S = s;
         dpr = Math.min(2, window.devicePixelRatio || 1);
         P = Math.round(S * 0.035);
         pitch = (S - P * 2) / N;
@@ -755,11 +775,6 @@
         const slotW = (S - 16) / 3;
         trayPitch = Math.min(pitch * 0.56, (slotW - 12) / 5);
         trayEl.style.height = `${Math.round(trayPitch * 5 + 14)}px`;
-        sprites = {};
-        bg = drawBackground();
-        drawTray();
-        placeHint();
-        kick();
       }
       function placeHint() {
         if (!hand || !hand.isConnected) return;
@@ -1005,6 +1020,7 @@
       let drag = null;
       let selected = -1; // фигура лотка, выбранная нажатием (−1 — нет)
       let flying = false; // фигура летит на место — новые касания ждут
+      let relayoutIfNeeded = () => {}; // отложенный пересчёт раскладки (см. onResize ниже)
       let floats = []; // готовые «поднятые» фигуры для каждого места лотка (размер клетки поля)
       function select(i) {
         if (selected >= 0 && slots[selected]) slots[selected].classList.remove('selected');
@@ -1023,8 +1039,9 @@
           flying = false;
           f.el.remove();
           slots[i].classList.remove('lifted');
-          if (!screen.isConnected || over || !tray[i] || !fits(grid, cellsOf(tray[i]), tgt.r0, tgt.c0)) { kick(); return; }
-          placePiece(i, tgt);
+          if (screen.isConnected && !over && tray[i] && fits(grid, cellsOf(tray[i]), tgt.r0, tgt.c0)) placePiece(i, tgt);
+          else kick();
+          relayoutIfNeeded();
         }, reducedMotion ? 0 : ms);
       }
       function buildFloat(p) {
@@ -1136,6 +1153,7 @@
           if (d.moved) sfx.back();
         }
         kick();
+        relayoutIfNeeded(); // экран менялся во время перетаскивания — пересчитываем сейчас
       }
       slots.forEach((slot, i) => {
         slot.addEventListener('pointerdown', (e) => onDown(e, i));
@@ -1295,18 +1313,33 @@
         ctx.go('#/map');
       }
 
+      // Экран изменился (повернули телефон, браузер вышел из полноэкранного режима — например,
+      // жестом «назад» от края экрана, — показалась или спряталась строка адреса). Если в этот
+      // момент фигуру тянут или она летит, раскладку пересчитываем сразу после этого: раньше
+      // такой пересчёт терялся, поле оставалось под старый размер экрана и уходило под панель
+      // браузера.
       let resizeRaf = 0;
+      let relayout = false;
       const onResize = () => {
         if (resizeRaf) return;
-        resizeRaf = requestAnimationFrame(() => { resizeRaf = 0; if (!drag) layout(); });
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = 0;
+          if (drag || flying) relayout = true;
+          else layout();
+        });
       };
+      relayoutIfNeeded = () => { if (relayout && !drag && !flying) { relayout = false; layout(); } };
       window.addEventListener('resize', onResize);
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+      document.addEventListener('fullscreenchange', onResize);
 
       disposers.push(() => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
         window.removeEventListener('resize', onResize);
+        if (window.visualViewport) window.visualViewport.removeEventListener('resize', onResize);
+        document.removeEventListener('fullscreenchange', onResize);
         if (raf) cancelAnimationFrame(raf);
         if (drag) drag.el.remove();
         drag = null;
