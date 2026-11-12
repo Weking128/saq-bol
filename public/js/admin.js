@@ -164,8 +164,7 @@
     if (DER) {
       content.replaceChildren(h('div', null,
         h('section', { class: 'kpis a-section' },
-          kpi('Участников', fmt(t.participants), `из ${fmt(t.institutions)} учебных заведений`),
-          kpi('Прошли все миссии', fmt(t.missionsDone), `${pct(t.missionsDone, t.participants)}% от участников`)),
+          kpi('Участников', fmt(t.participants), `из ${fmt(t.institutions)} учебных заведений`)),
         h('section', { class: 'grid-2 a-section' },
           h('div', { class: 'panel' },
             h('div', { class: 'panel-head' }, h('h3', null, 'Регистрации по дням'), h('span', { class: 'hint' }, 'наведите на столбец')),
@@ -232,8 +231,7 @@
     return h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
       h('thead', null, h('tr', null,
         h('th', null, 'Город / район'), h('th', { class: 'num' }, 'Заведений с участниками'), h('th', { class: 'num' }, 'Участников'),
-        h('th', { class: 'num' }, 'Прошли миссии'),
-        !DER && [h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% сдачи'), h('th', { class: 'num' }, 'Ср. балл')])),
+        !DER && [h('th', { class: 'num' }, 'Прошли миссии'), h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% сдачи'), h('th', { class: 'num' }, 'Ср. балл')])),
       h('tbody', null, rows.map((r) => h('tr', {
         class: 'click' + (r.participants ? '' : ' inactive'),
         onclick: () => { state.filters.district = r.id; render(); },
@@ -241,8 +239,8 @@
       h('td', { class: 'name' }, r.name),
       h('td', { class: 'num' }, r.institutions),
       h('td', { class: 'num' }, r.participants),
-      h('td', { class: 'num' }, r.missionsDone),
       !DER && [
+        h('td', { class: 'num' }, r.missionsDone),
         h('td', { class: 'num' }, r.passed),
         h('td', { class: 'num' }, `${pct(r.passed, r.participants)}%`),
         h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ','))])))));
@@ -315,7 +313,7 @@
       ['rate', '% сдачи', true],
       ['avgScore', 'Ср. балл', true],
       ['lastActivity', 'Активность', false],
-    ].filter(([k]) => !(DER && ['passed', 'rate', 'avgScore'].includes(k)));
+    ].filter(([k]) => !(DER && ['missionsDone', 'passed', 'rate', 'avgScore'].includes(k)));
     if (!DER) rows.forEach((r) => { r.rate = pct(r.passed, r.participants); });
     const thead = h('thead', null, h('tr', null, cols.map(([k, label, num]) => h('th', {
       class: 'sortable' + (num ? ' num' : '') + (k === 'type' || k === 'lastActivity' ? ' hide-sm' : ''),
@@ -335,8 +333,8 @@
       h('td', null, h('div', { class: 'name' }, r.name), h('div', { class: 'sub' }, r.districtName)),
       h('td', { class: 'hide-sm' }, TYPE_LABELS[r.type] || r.type),
       h('td', { class: 'num' }, r.participants),
-      h('td', { class: 'num' }, r.missionsDone),
       !DER && [
+        h('td', { class: 'num' }, r.missionsDone),
         h('td', { class: 'num' }, r.passed),
         h('td', { class: 'num' }, `${r.rate}%`),
         h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ','))],
@@ -451,14 +449,14 @@
             : tableDetails('recent', ['Время', 'Регистраций', 'Сертификатов'], L.recent.filter((x) => x.reg || x.cert).reverse().map((x) => [time(x.at), x.reg, x.cert])),
         })),
       h('section', { class: 'grid-2 a-section' },
-        panel('Воронка прохождения', DER ? 'от регистрации до всех миссий' : 'от регистрации до сертификата', funnelView(a.funnel)),
+        panel('Воронка прохождения', DER ? 'зарегистрировались и начали миссии' : 'от регистрации до сертификата', funnelView(a.funnel)),
         panel('Миссии', '% прошедших из тех, кому миссия доступна', missionsView(a.missions, titles))),
       !DER && h('section', { class: 'grid-2 a-section' },
         panel('Результаты теста', 'лучший результат каждого участника', scoresView(a)),
         panel('Итоговый тест', null, testsView(a))),
       h('section', { class: 'grid-2 a-section' },
         panel('Активность по часам', 'регистрации за период, местное время', hoursView(a.hours)),
-        panel('Где останавливаются', 'кто ещё не прошёл все миссии', stuckView(a.stuck))),
+        panel('Где останавливаются', DER ? 'сколько миссий уже пройдено' : 'кто ещё не прошёл все миссии', stuckView(a.stuck))),
       h('section', { class: 'panel a-section' },
         h('div', { class: 'panel-head' }, h('h3', null, 'Язык и версия квеста')),
         splitsView(a)));
