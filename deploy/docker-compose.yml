@@ -53,6 +53,7 @@ services:
       MONGODB_URI: mongodb://saqbol:${MONGO_APP_PASSWORD}@mongo:27017/saq-bol?authSource=saq-bol
       MONGODB_DB: saq-bol
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?укажите ADMIN_PASSWORD в deploy/.env}
+      DER_PASSWORD: ${DER_PASSWORD:-}
       TRUST_PROXY: "1"
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-}
       MONGODB_POOL_SIZE: ${MONGODB_POOL_SIZE:-20}

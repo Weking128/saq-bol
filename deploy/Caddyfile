@@ -47,7 +47,7 @@
 	# Файлы уже сжаты при сборке образа (caddy.Dockerfile) — Caddy отдаёт готовые .br / .gz
 	handle {
 		root * /srv/public
-		@admin path /admin /admin.html
+		@admin path /admin /admin.html /der /der.html
 		header @admin X-Robots-Tag "noindex, nofollow"
 		header Cache-Control "no-cache"
 		try_files {path} {path}.html

@@ -1,17 +1,24 @@
 // Админ-панель «Сақ бол!»: обзор, участники, учебные заведения, настройки.
+// Эта же страница — панель ДЭР (/der, <body data-panel="der">): всё то же самое, но без итогового
+// теста и сертификатов и только просмотр. Данные о тесте сервер панели ДЭР не отдаёт вовсе.
 (function () {
   'use strict';
   const { h, mascot, toast, fmt } = SB;
   const root = document.getElementById('admin-root');
+  const DER = document.body.dataset.panel === 'der';
+  const API = DER ? '/api/der' : '/api/admin';
+  const PANEL_NAME = DER ? 'Панель ДЭР' : 'Админ-панель';
 
   const TYPE_LABELS = { school: 'Школа', college: 'Колледж', university: 'Вуз', other: 'Другое' };
-  const STATUS_LABELS = {
-    passed: 'Сертификат получен',
-    failed: 'Тест не сдан',
-    missions_done: 'Миссии пройдены',
-    in_progress: 'Проходит миссии',
-    registered: 'Только регистрация',
-  };
+  const STATUS_LABELS = DER
+    ? { missions_done: 'Миссии пройдены', in_progress: 'Проходит миссии', registered: 'Только регистрация' }
+    : {
+      passed: 'Сертификат получен',
+      failed: 'Тест не сдан',
+      missions_done: 'Миссии пройдены',
+      in_progress: 'Проходит миссии',
+      registered: 'Только регистрация',
+    };
   const state = { tab: 'overview', filters: { from: '', to: '', type: '', district: '' }, people: { q: '', district: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }, institutions: null, districts: [], instDistrict: '' };
 
   async function api(path, opts = {}) {
@@ -51,7 +58,7 @@
 
   function renderLogin() {
     stopRefresh();
-    const pw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', placeholder: 'Пароль администратора', 'aria-label': 'Пароль' });
+    const pw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', placeholder: DER ? 'Пароль' : 'Пароль администратора', 'aria-label': 'Пароль' });
     const err = h('p', { class: 'error-text', role: 'alert' });
     const btn = h('button', { class: 'btn', type: 'submit' }, 'Войти');
     const form = h('form', {
@@ -61,14 +68,14 @@
         err.textContent = '';
         btn.disabled = true;
         try {
-          await api('/api/admin/login', { method: 'POST', body: { password: pw.value }, allow401: true });
+          await api(`${API}/login`, { method: 'POST', body: { password: pw.value }, allow401: true });
           boot();
         } catch (ex) {
           err.textContent = ex.message;
           btn.disabled = false;
         }
       },
-    }, mascot(), h('h2', { class: 'center' }, 'Админ-панель'), h('p', { class: 'muted center small' }, 'Сақ бол! — квест по финансовой безопасности'), pw, err, btn);
+    }, mascot(), h('h2', { class: 'center' }, PANEL_NAME), h('p', { class: 'muted center small' }, 'Сақ бол! — квест по финансовой безопасности'), pw, err, btn);
     root.replaceChildren(h('div', { class: 'login-wrap' }, form));
     pw.focus();
   }
@@ -81,7 +88,7 @@
     ['people', 'Участники'],
     ['institutions', 'Учебные заведения'],
     ['settings', 'Настройки'],
-  ];
+  ].filter(([id]) => !(DER && id === 'settings'));
 
   function shell() {
     const main = h('main', { class: 'a-main' });
@@ -89,12 +96,12 @@
       h('button', { role: 'tab', 'aria-selected': String(state.tab === id), onclick: () => switchTab(id) }, label)));
     root.replaceChildren(
       h('header', { class: 'a-top' },
-        h('div', { class: 'brand' }, h('img', { src: '/img/favicon.svg', alt: '', width: '30', height: '30' }), h('div', null, 'Сақ бол!', h('small', null, 'Админ-панель'))),
+        h('div', { class: 'brand' }, h('img', { src: '/img/favicon.svg', alt: '', width: '30', height: '30' }), h('div', null, 'Сақ бол!', h('small', null, PANEL_NAME))),
         h('div', { class: 'spacer' }),
         h('a', { href: '/', target: '_blank', rel: 'noopener' }, 'Открыть квест ↗'),
         h('button', {
           class: 'plain',
-          onclick: async () => { await api('/api/admin/logout', { method: 'POST' }).catch(() => {}); renderLogin(); },
+          onclick: async () => { await api(`${API}/logout`, { method: 'POST' }).catch(() => {}); renderLogin(); },
         }, 'Выйти')),
       tabs, main);
     return main;
@@ -113,11 +120,11 @@
     stopRefresh();
     hideTip();
     const main = shell();
-    ({ overview: renderOverview, analytics: renderAnalytics, people: renderPeople, institutions: renderInstitutions, settings: renderSettings })[state.tab](main);
+    ({ overview: renderOverview, analytics: renderAnalytics, people: renderPeople, institutions: DER ? renderInstitutionsReadOnly : renderInstitutions, settings: renderSettings })[state.tab](main);
   }
 
   async function loadInstitutions(force) {
-    if (!state.institutions || force) state.institutions = await api('/api/admin/institutions');
+    if (!state.institutions || force) state.institutions = await api(`${API}/institutions`);
     return state.institutions;
   }
 
@@ -148,12 +155,34 @@
 
     let s;
     try {
-      s = await api('/api/admin/stats?' + qs(f));
+      s = await api(`${API}/stats?` + qs(f));
     } catch (e) {
       content.replaceChildren(h('p', { class: 'error-text' }, e.message));
       return;
     }
     const t = s.totals;
+    if (DER) {
+      content.replaceChildren(h('div', null,
+        h('section', { class: 'kpis a-section' },
+          kpi('Участников', fmt(t.participants), `из ${fmt(t.institutions)} учебных заведений`),
+          kpi('Прошли все миссии', fmt(t.missionsDone), `${pct(t.missionsDone, t.participants)}% от участников`)),
+        h('section', { class: 'grid-2 a-section' },
+          h('div', { class: 'panel' },
+            h('div', { class: 'panel-head' }, h('h3', null, 'Регистрации по дням'), h('span', { class: 'hint' }, 'наведите на столбец')),
+            dayChart(s.byDay)),
+          h('div', { class: 'panel' },
+            h('div', { class: 'panel-head' }, h('h3', null, 'По классам и курсам')),
+            s.byGrade.length
+              ? h('div', { class: 'chips' }, s.byGrade.map((g) => h('span', { class: 'chip' }, h('b', null, `${g.grade} ${g.kind === 'course' ? 'курс' : 'кл.'}`), ` — ${g.participants} уч.`)))
+              : h('p', { class: 'muted small' }, 'Пока нет данных.'))),
+        !f.district && h('section', { class: 'panel a-section' },
+          h('div', { class: 'panel-head' }, h('h3', null, 'По городу и районам'), h('span', { class: 'hint' }, 'нажмите на строку, чтобы отфильтровать статистику')),
+          districtTable(s.byDistrict)),
+        h('section', { class: 'panel a-section' },
+          h('div', { class: 'panel-head' }, h('h3', null, 'Учебные заведения'), h('span', { class: 'hint' }, 'нажмите на строку, чтобы увидеть участников')),
+          institutionTable(s.byInstitution))));
+      return;
+    }
     // Обёртка h('div') отбрасывает пустые блоки (например, таблицу районов при выбранном районе)
     content.replaceChildren(h('div', null,
       h('section', { class: 'kpis a-section' },
@@ -203,7 +232,8 @@
     return h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
       h('thead', null, h('tr', null,
         h('th', null, 'Город / район'), h('th', { class: 'num' }, 'Заведений с участниками'), h('th', { class: 'num' }, 'Участников'),
-        h('th', { class: 'num' }, 'Прошли миссии'), h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% сдачи'), h('th', { class: 'num' }, 'Ср. балл'))),
+        h('th', { class: 'num' }, 'Прошли миссии'),
+        !DER && [h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% сдачи'), h('th', { class: 'num' }, 'Ср. балл')])),
       h('tbody', null, rows.map((r) => h('tr', {
         class: 'click' + (r.participants ? '' : ' inactive'),
         onclick: () => { state.filters.district = r.id; render(); },
@@ -212,9 +242,10 @@
       h('td', { class: 'num' }, r.institutions),
       h('td', { class: 'num' }, r.participants),
       h('td', { class: 'num' }, r.missionsDone),
-      h('td', { class: 'num' }, r.passed),
-      h('td', { class: 'num' }, `${pct(r.passed, r.participants)}%`),
-      h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ',')))))));
+      !DER && [
+        h('td', { class: 'num' }, r.passed),
+        h('td', { class: 'num' }, `${pct(r.passed, r.participants)}%`),
+        h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ','))])))));
   }
 
   function kpi(label, value, sub) {
@@ -255,17 +286,17 @@
         h('div', { class: 'ylab', style: { bottom: `${p * 100}%`, transform: 'translateY(50%)' } }, String(Math.round(nice * p))),
       ]),
       days.map((x) => {
-        const tip = [h('b', null, label(x.day)), h('br'), `Участников: ${x.participants}`, h('br'), `Сертификатов: ${x.passed}`];
+        const tip = [h('b', null, label(x.day)), h('br'), `Участников: ${x.participants}`, !DER && [h('br'), `Сертификатов: ${x.passed}`]];
         return h('div', {
-          class: 'col', tabindex: '0', 'aria-label': `${label(x.day)}: участников ${x.participants}, сертификатов ${x.passed}`,
+          class: 'col', tabindex: '0', 'aria-label': `${label(x.day)}: участников ${x.participants}` + (DER ? '' : `, сертификатов ${x.passed}`),
           onmouseenter: (e) => showTip(e, tip), onmouseleave: hideTip, onfocus: (e) => showTip(e, tip), onblur: hideTip,
         }, h('i', { style: { height: `${(x.participants / nice) * 100}%` } }));
       }));
     const xl = h('div', { class: 'xlabs', 'aria-hidden': 'true' }, days.map((x, i) => h('span', null, i % step === 0 || i === days.length - 1 ? label(x.day) : '')));
     const table = h('details', { style: { marginTop: '10px' } }, h('summary', { class: 'small muted' }, 'Показать таблицей'),
       h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
-        h('thead', null, h('tr', null, h('th', null, 'Дата'), h('th', { class: 'num' }, 'Участников'), h('th', { class: 'num' }, 'Сертификатов'))),
-        h('tbody', null, days.filter((x) => x.participants).reverse().map((x) => h('tr', null, h('td', null, label(x.day)), h('td', { class: 'num' }, x.participants), h('td', { class: 'num' }, x.passed)))))));
+        h('thead', null, h('tr', null, h('th', null, 'Дата'), h('th', { class: 'num' }, 'Участников'), !DER && h('th', { class: 'num' }, 'Сертификатов'))),
+        h('tbody', null, days.filter((x) => x.participants).reverse().map((x) => h('tr', null, h('td', null, label(x.day)), h('td', { class: 'num' }, x.participants), !DER && h('td', { class: 'num' }, x.passed)))))));
     return h('div', null, bars, xl, table);
   }
 
@@ -284,8 +315,8 @@
       ['rate', '% сдачи', true],
       ['avgScore', 'Ср. балл', true],
       ['lastActivity', 'Активность', false],
-    ];
-    rows.forEach((r) => { r.rate = pct(r.passed, r.participants); });
+    ].filter(([k]) => !(DER && ['passed', 'rate', 'avgScore'].includes(k)));
+    if (!DER) rows.forEach((r) => { r.rate = pct(r.passed, r.participants); });
     const thead = h('thead', null, h('tr', null, cols.map(([k, label, num]) => h('th', {
       class: 'sortable' + (num ? ' num' : '') + (k === 'type' || k === 'lastActivity' ? ' hide-sm' : ''),
       onclick: () => { dir = sortKey === k ? -dir : (num ? -1 : 1); sortKey = k; fill(); },
@@ -305,9 +336,10 @@
       h('td', { class: 'hide-sm' }, TYPE_LABELS[r.type] || r.type),
       h('td', { class: 'num' }, r.participants),
       h('td', { class: 'num' }, r.missionsDone),
-      h('td', { class: 'num' }, r.passed),
-      h('td', { class: 'num' }, `${r.rate}%`),
-      h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ',')),
+      !DER && [
+        h('td', { class: 'num' }, r.passed),
+        h('td', { class: 'num' }, `${r.rate}%`),
+        h('td', { class: 'num' }, r.avgScore === null ? '—' : String(r.avgScore).replace('.', ','))],
       h('td', { class: 'hide-sm nowrap' }, dt(r.lastActivity)))));
     }
     fill();
@@ -345,7 +377,7 @@
     const load = async (quiet) => {
       let a;
       try {
-        a = await api('/api/admin/analytics?' + qs(state.filters));
+        a = await api(`${API}/analytics?` + qs(state.filters));
       } catch (e) {
         if (!quiet) content.replaceChildren(h('p', { class: 'error-text' }, e.message));
         return;
@@ -405,21 +437,23 @@
         h('div', { class: 'kpis live-kpis' },
           kpi('Активны сейчас', fmt(L.activeNow), 'регистрировались, проходили миссии или тест за последние 10 минут'),
           kpi('Регистраций сегодня', fmt(L.regToday), 'с начала дня'),
-          kpi('Сертификатов сегодня', fmt(L.certToday), L.regToday ? `${pct(L.certToday, L.regToday)}% от регистраций за день` : 'с начала дня')),
+          !DER && kpi('Сертификатов сегодня', fmt(L.certToday), L.regToday ? `${pct(L.certToday, L.regToday)}% от регистраций за день` : 'с начала дня')),
         h('h4', { class: 'sub-h' }, 'Последние 3 часа — регистрации за каждые 10 минут'),
         vbars(L.recent, {
           small: true,
           every: 3,
           value: (x) => x.reg,
           label: (x) => time(x.at),
-          aria: (x) => `${time(x.at)}: регистраций ${x.reg}, сертификатов ${x.cert}`,
-          tip: (x) => [h('b', null, `${time(x.at)}–${time(new Date(x.at).getTime() + 600000)}`), h('br'), `Регистраций: ${x.reg}`, h('br'), `Сертификатов: ${x.cert}`],
-          table: tableDetails('recent', ['Время', 'Регистраций', 'Сертификатов'], L.recent.filter((x) => x.reg || x.cert).reverse().map((x) => [time(x.at), x.reg, x.cert])),
+          aria: (x) => `${time(x.at)}: регистраций ${x.reg}` + (DER ? '' : `, сертификатов ${x.cert}`),
+          tip: (x) => [h('b', null, `${time(x.at)}–${time(new Date(x.at).getTime() + 600000)}`), h('br'), `Регистраций: ${x.reg}`, !DER && [h('br'), `Сертификатов: ${x.cert}`]],
+          table: DER
+            ? tableDetails('recent', ['Время', 'Регистраций'], L.recent.filter((x) => x.reg).reverse().map((x) => [time(x.at), x.reg]))
+            : tableDetails('recent', ['Время', 'Регистраций', 'Сертификатов'], L.recent.filter((x) => x.reg || x.cert).reverse().map((x) => [time(x.at), x.reg, x.cert])),
         })),
       h('section', { class: 'grid-2 a-section' },
-        panel('Воронка прохождения', 'от регистрации до сертификата', funnelView(a.funnel)),
+        panel('Воронка прохождения', DER ? 'от регистрации до всех миссий' : 'от регистрации до сертификата', funnelView(a.funnel)),
         panel('Миссии', '% прошедших из тех, кому миссия доступна', missionsView(a.missions, titles))),
-      h('section', { class: 'grid-2 a-section' },
+      !DER && h('section', { class: 'grid-2 a-section' },
         panel('Результаты теста', 'лучший результат каждого участника', scoresView(a)),
         panel('Итоговый тест', null, testsView(a))),
       h('section', { class: 'grid-2 a-section' },
@@ -502,9 +536,11 @@
       value: (x) => x.reg,
       label: (x) => String(x.hour),
       caption: 'час дня',
-      aria: (x) => `${x.hour}:00: регистраций ${x.reg}, сертификатов ${x.cert}`,
-      tip: (x) => [h('b', null, `${x.hour}:00–${x.hour + 1}:00`), h('br'), `Регистраций: ${fmt(x.reg)}`, h('br'), `Сертификатов: ${fmt(x.cert)}`],
-      table: tableDetails('hours', ['Час', 'Регистраций', 'Сертификатов'], used.map((x) => [`${x.hour}:00–${x.hour + 1}:00`, fmt(x.reg), fmt(x.cert)])),
+      aria: (x) => `${x.hour}:00: регистраций ${x.reg}` + (DER ? '' : `, сертификатов ${x.cert}`),
+      tip: (x) => [h('b', null, `${x.hour}:00–${x.hour + 1}:00`), h('br'), `Регистраций: ${fmt(x.reg)}`, !DER && [h('br'), `Сертификатов: ${fmt(x.cert)}`]],
+      table: DER
+        ? tableDetails('hours', ['Час', 'Регистраций'], used.map((x) => [`${x.hour}:00–${x.hour + 1}:00`, fmt(x.reg)]))
+        : tableDetails('hours', ['Час', 'Регистраций', 'Сертификатов'], used.map((x) => [`${x.hour}:00–${x.hour + 1}:00`, fmt(x.reg), fmt(x.cert)])),
     });
   }
 
@@ -529,14 +565,16 @@
       h('td', null, label),
       h('td', { class: 'num' }, fmt(r.n)),
       h('td', null, h('span', { class: 'share', role: 'img', 'aria-label': `${pct(r.n, total)}%` }, h('i', { style: { width: `${pct(r.n, total)}%` } })), `${pct(r.n, total)}%`),
-      h('td', { class: 'num' }, fmt(r.certified)),
-      h('td', { class: 'num' }, `${pct(r.certified, r.n)}%`));
+      !DER && [
+        h('td', { class: 'num' }, fmt(r.certified)),
+        h('td', { class: 'num' }, `${pct(r.certified, r.n)}%`)]);
+    const cols = DER ? '3' : '5';
     return h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
-      h('thead', null, h('tr', null, h('th', null, 'Группа'), h('th', { class: 'num' }, 'Участников'), h('th', null, 'Доля'), h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% получивших'))),
+      h('thead', null, h('tr', null, h('th', null, 'Группа'), h('th', { class: 'num' }, 'Участников'), h('th', null, 'Доля'), !DER && [h('th', { class: 'num' }, 'Сертификатов'), h('th', { class: 'num' }, '% получивших')])),
       h('tbody', null,
-        h('tr', { class: 'group-row' }, h('td', { colspan: '5' }, 'Язык сайта')),
+        h('tr', { class: 'group-row' }, h('td', { colspan: cols }, 'Язык сайта')),
         a.langs.map((r) => row(LANG_LABELS[r.lang] || r.lang, r)),
-        h('tr', { class: 'group-row' }, h('td', { colspan: '5' }, 'Версия квеста')),
+        h('tr', { class: 'group-row' }, h('td', { colspan: cols }, 'Версия квеста')),
         a.levels.map((r) => row(LEVEL_LABELS[r.level] || r.level, r)))));
   }
 
@@ -552,13 +590,13 @@
     const sel = (key, options) => h('select', { class: 'ctl', onchange: (e) => { p[key] = e.target.value; reload(); } },
       options.map(([v, label]) => h('option', { value: v, selected: String(p[key]) === String(v) }, label)));
 
-    const exportLink = () => '/api/admin/export.csv?' + qs({ q: p.q, district: p.district, institution: p.institution, status: p.status, grade: p.grade, from: p.from, to: p.to });
+    const exportLink = () => `${API}/export.csv?` + qs({ q: p.q, district: p.district, institution: p.institution, status: p.status, grade: p.grade, from: p.from, to: p.to });
     const instOptions = insts.filter((i) => !p.district || i.district === p.district);
 
     main.append(
       h('div', { class: 'filters' },
         h('label', { class: 'f grow' }, 'Поиск', h('input', {
-          class: 'ctl', type: 'search', value: p.q, placeholder: 'ФИО или № сертификата',
+          class: 'ctl', type: 'search', value: p.q, placeholder: DER ? 'ФИО' : 'ФИО или № сертификата',
           oninput: (e) => { p.q = e.target.value; clearTimeout(timer); timer = setTimeout(reload, 300); },
         })),
         h('label', { class: 'f' }, 'Город / район', districtSelect(p.district, (v) => { p.district = v; p.institution = ''; p.page = 1; render(); })),
@@ -567,7 +605,7 @@
         h('label', { class: 'f' }, 'Класс / курс', sel('grade', [['', 'Все'], ...Array.from({ length: 12 }, (_, i) => [String(i + 1), String(i + 1)])])),
         h('label', { class: 'f' }, 'С', h('input', { class: 'ctl', type: 'date', value: p.from, onchange: (e) => { p.from = e.target.value; reload(); } })),
         h('label', { class: 'f' }, 'По', h('input', { class: 'ctl', type: 'date', value: p.to, onchange: (e) => { p.to = e.target.value; reload(); } })),
-        h('label', { class: 'f' }, 'Сортировка', sel('sort', [['created', 'Сначала новые'], ['name', 'По фамилии'], ['institution', 'По заведению'], ['score', 'По результату']])),
+        h('label', { class: 'f' }, 'Сортировка', sel('sort', [['created', 'Сначала новые'], ['name', 'По фамилии'], ['institution', 'По заведению'], ['score', 'По результату']].filter(([k]) => !(DER && k === 'score')))),
         h('button', { class: 'abtn ghost', onclick: () => { state.people = { q: '', district: '', institution: '', status: '', grade: '', from: '', to: '', sort: 'created', page: 1 }; render(); } }, 'Сбросить'),
         h('a', { class: 'abtn ok', href: '#', onclick: (e) => { e.preventDefault(); location.href = exportLink(); } }, '↓ Скачать для Excel')),
       h('div', { class: 'panel' }, tableBox));
@@ -579,7 +617,7 @@
     box.style.opacity = '0.6';
     let data;
     try {
-      data = await api('/api/admin/participants?' + qs({ ...p, size: 50 }));
+      data = await api(`${API}/participants?` + qs({ ...p, size: 50 }));
     } catch (e) {
       box.replaceChildren(h('p', { class: 'error-text' }, e.message));
       box.style.opacity = '1';
@@ -591,16 +629,16 @@
       h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
         h('thead', null, h('tr', null,
           h('th', null, 'ФИО'), h('th', null, 'Учебное заведение'), h('th', null, 'Класс'),
-          h('th', { class: 'num' }, 'Миссии'), h('th', { class: 'num' }, 'Тест'), h('th', null, 'Статус'), h('th', { class: 'hide-sm' }, 'Регистрация'))),
+          h('th', { class: 'num' }, 'Миссии'), !DER && h('th', { class: 'num' }, 'Тест'), h('th', null, 'Статус'), h('th', { class: 'hide-sm' }, 'Регистрация'))),
         h('tbody', null, data.rows.length ? data.rows.map((r) => h('tr', { class: 'click', onclick: () => openParticipant(r.id) },
           h('td', null, h('div', { class: 'name' }, `${r.lastName} ${r.firstName}`), r.middleName ? h('div', { class: 'sub' }, r.middleName) : null),
           h('td', null, r.institution, h('div', { class: 'sub' }, r.districtName)),
           h('td', null, r.gradeLabel, r.level === 'junior' ? h('div', { class: 'sub' }, '🌱 облегчённая версия') : null),
           h('td', { class: 'num' }, `${r.missionsDone}/${r.missionsTotal || 5}`),
-          h('td', { class: 'num' }, r.attemptsCount ? `${r.bestScore}/10` : '—', r.attemptsCount > 1 ? h('div', { class: 'sub' }, `попыток: ${r.attemptsCount}`) : null),
+          !DER && h('td', { class: 'num' }, r.attemptsCount ? `${r.bestScore}/10` : '—', r.attemptsCount > 1 ? h('div', { class: 'sub' }, `попыток: ${r.attemptsCount}`) : null),
           h('td', null, statusBadge(r.status)),
           h('td', { class: 'hide-sm' }, dt(r.createdAt))))
-          : h('tr', { class: 'empty-row' }, h('td', { colspan: '7' }, 'Участников по этим условиям нет'))))),
+          : h('tr', { class: 'empty-row' }, h('td', { colspan: DER ? '6' : '7' }, 'Участников по этим условиям нет'))))),
       h('div', { class: 'pager' },
         h('span', null, `Найдено: ${fmt(data.total)}`),
         h('span', { class: 'row' },
@@ -619,7 +657,7 @@
 
     let data;
     try {
-      data = await api(`/api/admin/participants/${id}`);
+      data = await api(`${API}/participants/${id}`);
     } catch (e) {
       modal.replaceChildren(h('p', { class: 'error-text' }, e.message));
       return;
@@ -646,15 +684,16 @@
         h('dt', null, 'Регистрация'), h('dd', null, dt(p.createdAt)),
         h('dt', null, 'Последняя активность'), h('dd', null, dt(p.updatedAt)),
         h('dt', null, 'Очки (XP)'), h('dd', null, String(p.xp)),
-        h('dt', null, 'Лучший результат'), h('dd', null, p.attemptsCount ? `${p.bestScore} из 10 (попыток: ${p.attemptsCount})` : 'тест не проходил(а)'),
-        h('dt', null, 'Сертификат'), h('dd', null, p.certNumber ? `№ ${p.certNumber} от ${d(p.passedAt)}` : '—')),
+        !DER && [
+          h('dt', null, 'Лучший результат'), h('dd', null, p.attemptsCount ? `${p.bestScore} из 10 (попыток: ${p.attemptsCount})` : 'тест не проходил(а)'),
+          h('dt', null, 'Сертификат'), h('dd', null, p.certNumber ? `№ ${p.certNumber} от ${d(p.passedAt)}` : '—')]),
       h('h3', null, 'Миссии'),
       h('div', { class: 'mgrid' }, (((p.level === 'junior' ? SB.JUNIOR_MISSIONS_BY_LANG : SB.MISSIONS_BY_LANG) || {}).ru || []).filter((m) => !p.missionIds || p.missionIds.includes(m.id)).map((m, i) => {
         const r = p.missions[m.id];
         return h('div', { class: 'mcell' + (r ? '' : ' off') }, h('b', null, `${i + 1}. ${m.title}`), r ? `${r.score} из ${r.max} · ${d(r.at)}` : 'не пройдена');
       })),
-      h('h3', null, 'Попытки теста'),
-      data.attempts.length
+      !DER && h('h3', null, 'Попытки теста'),
+      DER ? null : data.attempts.length
         ? h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
           h('thead', null, h('tr', null, h('th', null, 'Начата'), h('th', null, 'Завершена'), h('th', { class: 'num' }, 'Баллы'))),
           h('tbody', null, data.attempts.map((a) => h('tr', null, h('td', null, dt(a.startedAt)), h('td', null, a.finishedAt ? dt(a.finishedAt) : 'не завершена'), h('td', { class: 'num' }, a.score ?? '—'))))))
@@ -664,8 +703,8 @@
       canvas && h('div', { class: 'row', style: { flexWrap: 'wrap' } },
         h('button', { class: 'abtn', onclick: async () => SB.cert.download(await SB.cert.toPdf(canvas), SB.cert.fileName(certData(), 'pdf')) }, '↓ PDF'),
         h('button', { class: 'abtn ghost', onclick: async () => SB.cert.download(await SB.cert.toPng(canvas), SB.cert.fileName(certData(), 'png')) }, '↓ PNG')),
-      h('hr', { style: { border: 0, borderTop: '1px solid var(--line)', margin: '20px 0 10px' } }),
-      h('button', {
+      !DER && h('hr', { style: { border: 0, borderTop: '1px solid var(--line)', margin: '20px 0 10px' } }),
+      !DER && h('button', {
         class: 'abtn bad',
         onclick: async () => {
           if (!confirm(`Удалить участника «${p.lastName} ${p.firstName}» и все его результаты? Это действие нельзя отменить.`)) return;
@@ -790,6 +829,37 @@
     fill();
   }
 
+  // Панель ДЭР: список заведений без правки
+  async function renderInstitutionsReadOnly(main) {
+    const box = h('div', null, h('p', { class: 'muted' }, 'Загрузка…'));
+    let q = '';
+    main.append(
+      h('div', { class: 'filters' },
+        h('label', { class: 'f grow' }, 'Поиск', h('input', { class: 'ctl', type: 'search', placeholder: 'Название', oninput: (e) => { q = e.target.value.trim().toLowerCase(); fill(); } })),
+        h('label', { class: 'f' }, 'Город / район', districtSelect(state.instDistrict, (v) => { state.instDistrict = v; fill(); }))),
+      h('div', { class: 'panel' }, box));
+    try { await loadInstitutions(true); } catch (e) { box.replaceChildren(h('p', { class: 'error-text' }, e.message)); return; }
+    const districtName = (id) => state.districts.find((x) => x.id === id)?.name || '';
+    function fill() {
+      const list = state.institutions.filter((i) => (!q || (i.name + ' ' + (i.nameKk || '')).toLowerCase().includes(q))
+        && (!state.instDistrict || i.district === state.instDistrict));
+      const shown = list.slice(0, 300);
+      box.replaceChildren(
+        h('p', { class: 'small muted', style: { marginBottom: '8px' } }, `Найдено: ${list.length}${list.length > shown.length ? ` (показаны первые ${shown.length} — уточните поиск или выберите район)` : ''}`),
+        h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+          h('thead', null, h('tr', null, h('th', null, 'Название'), h('th', null, 'Город / район'), h('th', { class: 'hide-sm' }, 'Тип'), h('th', { class: 'num' }, 'Участников'))),
+          h('tbody', null, shown.map((i) => h('tr', {
+            class: 'click' + (i.active ? '' : ' inactive'),
+            onclick: () => { state.people = { ...state.people, district: i.district || '', institution: i.id, q: '', status: '', page: 1 }; switchTab('people'); },
+          },
+          h('td', null, h('div', { class: 'name' }, i.name), i.nameKk ? h('div', { class: 'sub' }, i.nameKk) : null, i.active ? null : h('div', { class: 'sub' }, 'скрыто из списка для учеников')),
+          h('td', null, districtName(i.district)),
+          h('td', { class: 'hide-sm' }, TYPE_LABELS[i.type] || i.type),
+          h('td', { class: 'num' }, i.participants)))))));
+    }
+    fill();
+  }
+
   // ─── Настройки ────────────────────────────────────────────────────────
 
   async function renderSettings(main) {
@@ -856,6 +926,10 @@
       h('section', { class: 'panel a-section' }, h('h2', null, 'Пароль администратора'),
         h('p', { class: 'small' }, 'Пароль задаётся строкой ADMIN_PASSWORD в файле deploy/.env на сервере. ' +
           'Чтобы сменить пароль, исправьте её и выполните в папке deploy «sudo docker compose up -d» — все открытые сессии админки завершатся автоматически.')),
+      h('section', { class: 'panel a-section' }, h('h2', null, 'Панель ДЭР'),
+        h('p', { class: 'small' }, 'Панель ', h('a', { href: '/der', target: '_blank' }, `${location.host}/der`),
+          ' — та же админка, но без итогового теста и сертификатов и только просмотр (без правки, удаления и настроек). ' +
+          'Её пароль — строка DER_PASSWORD в deploy/.env, отдельно от пароля админки.')),
       h('section', { class: 'panel a-section' }, h('h2', null, 'Проверка сертификатов'),
         h('p', { class: 'small' }, 'Любой может проверить подлинность сертификата по номеру на странице ', h('a', { href: '/verify', target: '_blank' }, `${location.host}/verify`), '.')));
   }
@@ -864,7 +938,7 @@
 
   async function boot() {
     try {
-      await api('/api/admin/me', { allow401: true });
+      await api(`${API}/me`, { allow401: true });
     } catch (e) {
       if (e.status === 401) return renderLogin();
       root.replaceChildren(h('div', { class: 'login-wrap' }, h('p', { class: 'error-text' }, e.message)));
